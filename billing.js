@@ -555,20 +555,31 @@
   }
 
   function getFallbackBillingMonths(includeCurrent) {
-    return Array.from(monthInput.options)
-      .map((option) => option.value)
-      .filter((month) => {
-        if (!month) {
-          return false;
-        }
-        return includeCurrent ? month <= getCurrentMonthValue() : month < getCurrentMonthValue();
-      })
-      .map((month) => ({
-        month,
-        label: formatMonthLabel(month),
-        allPaid: false,
-        billable: false,
-      }));
+    // Generate months from the group's start (Sep 2026) through the current
+    // month so the list never goes stale as time passes.
+    const current = getCurrentMonthValue();
+    const [endYear, endMonth] = current.split("-").map(Number);
+    const months = [];
+    let year = 2026;
+    let month = 9; // September 2026 = start of the soccer group
+    while (year < endYear || (year === endYear && month <= endMonth)) {
+      const value = `${year}-${String(month).padStart(2, "0")}`;
+      const keep = includeCurrent ? value <= current : value < current;
+      if (keep) {
+        months.push({
+          month: value,
+          label: formatMonthLabel(value),
+          allPaid: false,
+          billable: false,
+        });
+      }
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+    }
+    return months;
   }
 
   function mergeBillingMonths(primaryMonths, fallbackMonths) {

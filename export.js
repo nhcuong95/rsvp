@@ -665,6 +665,42 @@
     scheduleReportLoad("export");
   });
 
+  // Populate months from the group's start (Sep 2026) through the current
+  // month, newest first, so the dropdown never goes stale.
+  (function populateMonthOptions() {
+    const now = new Date();
+    let year = 2026;
+    let month = 9; // September 2026 = start of the soccer group
+    const endYear = now.getFullYear();
+    const endMonth = now.getMonth() + 1;
+    const values = [];
+    while (year < endYear || (year === endYear && month <= endMonth)) {
+      values.push(`${year}-${String(month).padStart(2, "0")}`);
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+    }
+    if (!values.length) {
+      values.push("2026-09");
+    }
+    values.reverse();
+    monthInput.replaceChildren(
+      ...values.map((value) => {
+        const [yearPart, monthPart] = value.split("-");
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = new Date(
+          Number(yearPart),
+          Number(monthPart) - 1,
+          1,
+        ).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        return option;
+      }),
+    );
+  })();
+
   const monthFromUrl = new URLSearchParams(window.location.search).get("month");
   const hasValidMonthFromUrl = isMonthValue(monthFromUrl);
   const currentMonth = formatMonth(new Date());
