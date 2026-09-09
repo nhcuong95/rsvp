@@ -30,8 +30,9 @@ const DATA_DIR = path.join(REPO_ROOT, "data");
 
 // Defaults match billing.js (VENMO_RECIPIENT_USERNAME / VENMO_RECIPIENT_NAME).
 const DEFAULTS = {
-  venmo: "nampham2022",
-  recipient: "Nam Pham",
+  venmo: "nhcuong95",
+  zelle: "7744208189",
+  recipient: "Cuong Tipu",
 };
 
 function parseArgs(argv) {
@@ -48,6 +49,9 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === "--venmo") {
       options.venmo = String(argv[index + 1] || DEFAULTS.venmo).replace(/^@/, "");
+      index += 1;
+    } else if (arg === "--zelle") {
+      options.zelle = String(argv[index + 1] || DEFAULTS.zelle);
       index += 1;
     } else if (arg === "--recipient") {
       options.recipient = String(argv[index + 1] || DEFAULTS.recipient);
@@ -149,7 +153,9 @@ function buildDuesMessage(members, meta, options) {
   const message = [
     `🏸 Badminton dues — ${formatMonthLabel(meta.year, meta.month)}`,
     "",
-    `Please Venmo @${options.venmo} (${options.recipient}). Add your name + the month in the note.`,
+    `Please pay ${options.recipient} — Venmo @${options.venmo}${
+      options.zelle ? ` or Zelle ${options.zelle}` : ""
+    }. Add your name + the month in the note.`,
     "",
     ...lines,
     "",

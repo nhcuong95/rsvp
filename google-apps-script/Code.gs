@@ -1138,42 +1138,33 @@ function completeRosterMemberInfo_(params) {
     };
     const updatedFields = [];
 
-    if (requested.venmo) {
-      if (!current.venmo) {
-        values[1] = requested.venmo;
-        updatedFields.push("Venmo");
-      } else if (normalize_(current.venmo) !== normalize_(requested.venmo)) {
-        throw new Error("Admin login is required to change an existing Venmo.");
-      }
+    // Members can update their own info: a non-blank value overrides what is
+    // there, and a blank field is ignored (keeps the existing value).
+    if (requested.venmo && normalize_(requested.venmo) !== normalize_(current.venmo)) {
+      values[1] = requested.venmo;
+      updatedFields.push("Venmo");
     }
 
-    if (requested.messenger) {
-      if (!current.messenger) {
-        values[2] = requested.messenger;
-        updatedFields.push("Facebook profile");
-      } else if (normalize_(current.messenger) !== normalize_(requested.messenger)) {
-        throw new Error(
-          "Admin login is required to change an existing Facebook profile.",
-        );
-      }
+    if (
+      requested.messenger &&
+      normalize_(requested.messenger) !== normalize_(current.messenger)
+    ) {
+      values[2] = requested.messenger;
+      updatedFields.push("Facebook profile");
     }
 
-    if (requested.zelle) {
-      if (!current.zelle) {
-        values[4] = requested.zelle;
-        updatedFields.push("Zelle");
-      } else if (normalize_(current.zelle) !== normalize_(requested.zelle)) {
-        throw new Error("Admin login is required to change an existing Zelle.");
-      }
+    if (requested.zelle && normalize_(requested.zelle) !== normalize_(current.zelle)) {
+      values[4] = requested.zelle;
+      updatedFields.push("Zelle");
     }
 
-    if (current.note !== requested.note) {
+    if (requested.note && requested.note !== current.note) {
       values[3] = requested.note;
       updatedFields.push("Note");
     }
 
     if (updatedFields.length === 0) {
-      throw new Error("There is no missing member info to add.");
+      throw new Error("Enter something to update, or leave blank to keep it.");
     }
 
     range.setValues([values]);

@@ -40,11 +40,11 @@ node .claude/skills/dues-message/generate-dues-message.js 2026-04 --paid "Harvey
 
 ## Overriding the payment target
 
-The Venmo handle and recipient default to the group's collector
-(`@nampham2022`, "Nam Pham"), matching `billing.js`. Override if needed:
+The payment target defaults to the group's collector — Venmo `@nhcuong95`,
+Zelle `7744208189` (Cuong Tipu) — matching `billing.js`. Override if needed:
 
 ```bash
-node .claude/skills/dues-message/generate-dues-message.js 2026-04 --venmo somehandle --recipient "Some Name"
+node .claude/skills/dues-message/generate-dues-message.js 2026-04 --venmo somehandle --zelle 5551234567 --recipient "Some Name"
 ```
 
 ## Notes

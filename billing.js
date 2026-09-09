@@ -45,8 +45,9 @@
   const ADMIN_BILLING_MONTHS_CACHE_TTL_MS = 60 * 1000;
   const FETCH_TIMEOUT_MS = 12000;
   const JSONP_TIMEOUT_MS = 30000;
-  const VENMO_RECIPIENT_NAME = "Nam Pham";
-  const VENMO_RECIPIENT_USERNAME = "nampham2022";
+  const VENMO_RECIPIENT_NAME = "Cuong Tipu";
+  const VENMO_RECIPIENT_USERNAME = "nhcuong95";
+  const ZELLE_RECIPIENT_PHONE = "7744208189";
   const LOCAL_BILLING_FIXTURE = new URLSearchParams(window.location.search).get(
     "localBillingFixture",
   );
@@ -2288,7 +2289,7 @@
     return [
       `🏸 Badminton dues — ${formatMonthLabel(monthInput.value)}`,
       "",
-      `Please Venmo @${VENMO_RECIPIENT_USERNAME} (${VENMO_RECIPIENT_NAME}). Add your name + the month in the note.`,
+      `Please pay ${VENMO_RECIPIENT_NAME} — Venmo @${VENMO_RECIPIENT_USERNAME} or Zelle ${ZELLE_RECIPIENT_PHONE}. Add your name + the month in the note.`,
       "",
       ...lines,
       "",

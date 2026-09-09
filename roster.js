@@ -30,14 +30,10 @@
   function renderAdminState() {
     adminEyebrow.hidden = !adminToken;
     noteInput.disabled = false;
-    // Contact details (Venmo/Zelle/Facebook/Note) are admin-only to avoid
-    // disclosing members' payment info to everyone who opens the page.
-    [venmoInput, zelleInput, messengerInput, noteInput].forEach((input) => {
-      const field = input.closest(".field");
-      if (field) {
-        field.hidden = !adminToken;
-      }
-    });
+    // The contact form fields stay visible so members can enter/update their
+    // own details. They are never pre-filled for non-admins (see fillForm), so
+    // no one sees anyone else's info — the members table also hides those
+    // columns from non-admins (see renderRoster).
     updateSaveButtonLabel();
     renderRoster();
   }
@@ -181,10 +177,14 @@
   function fillForm(member, options) {
     editingOriginalName = member.name || "";
     nameInput.value = member.name || "";
-    venmoInput.value = member.venmo || "";
-    zelleInput.value = member.zelle || "";
-    messengerInput.value = member.messenger || "";
-    noteInput.value = member.note || "";
+    // Only admins see existing contact values pre-filled. For members the
+    // fields stay blank so they don't see anyone's info; whatever they type
+    // overrides, and blank fields keep the current value.
+    const showContact = Boolean(adminToken);
+    venmoInput.value = showContact ? member.venmo || "" : "";
+    zelleInput.value = showContact ? member.zelle || "" : "";
+    messengerInput.value = showContact ? member.messenger || "" : "";
+    noteInput.value = showContact ? member.note || "" : "";
     updateSaveButtonLabel();
     if (options?.focusRelevantField) {
       focusRelevantMemberField(member);
