@@ -2,58 +2,40 @@
   const APPS_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbzcjWqKlqoILjYBAZLZ1Ka1xZ5QDXL_Mq65kOZXsTAxpNhp39pIkbIDPXiNjGOah0EF/exec";
   const PLAYERS = [
-    "Alex Yeung",
-    "Anh Khoa Tran (Truc Phuong)",
-    "Bao Ta",
-    "Cuong (MC) Nguyen",
+    "Ly Phung Hoang",
     "Cuong Tipu",
-    "Danny Phan",
-    "Danh Nguyen",
-    "Derek Blaiotta",
-    "Duy Nguyen",
-    "Harvey Le",
-    "Hoan Nguyen",
-    "Hoang Huynh",
-    "Hung Cao (Truong Do)",
-    "Huong Le",
-    "Huy Nguyen (Harvey's fr)",
-    "Huy Viet Nguyen",
-    "Jordan Scherr",
-    "Khang Nguyen",
-    "Khang Vinh",
-    "KhiemHoang Tran",
-    "Luan Nguyen",
-    "Nam Pham",
-    "Nhan Chau",
-    "Nick Nguyen",
-    "Nguyen Nhat",
-    "Phuc Anh",
-    "Phuoc Truong",
-    "Son Nguyen",
-    "Thanh Nguyen",
-    "Thanh Thanh Tran",
-    "Thanh Thu Tieu",
-    "Thien Nguyen",
-    "Lily Do",
-    "Thinh Pham",
-    "Thuy Duong",
-    "Todd Nguyen",
-    "Tr Nguyen (Trung)",
-    "Tri Ho",
-    "Truc Phuong",
-    "Van Trung Nguyen",
-    "Truong Do",
-    "Tu Anh Do",
-    "Tuan Pham",
-    "Tuan Phan/Hien",
-    "Tuan Ta",
-    "Uyen",
-    "Viet Do",
-    "Vu Nguyen",
+    "Bao C Q Nguyen",
+    "Thong Le",
+    "Kim Huân",
+    "Hung Duc Nguyen",
+    "Minh Tuấn",
+    "Ân Nguyễn",
+    "Hieu Phan",
+    "Duong Vu",
+    "Cơ Trần",
+    "Quang Nguyen",
+    "Bao T Tran",
+    "Kien Tran",
+    "Duong Khai Du",
+    "Thành Vinh",
+    "Nguyen Thai",
+    "Nguyen Hoang Nam",
+    "Nguyễn Minh",
+    "Henry Vu",
+    "Quan N Nguyen",
+    "Tai Doan",
+    "Kiet Trinh",
+    "Minh Vũ",
+    "Nguyễn Hoàng Dương",
+    "Tân",
+    "Đứcc Anhh",
+    "Phan Huy Hoang",
+    "Huy Ho",
+    "Nguyễn Dương Tùng",
   ];
-  const PLAY_DAYS = [2, 4, 5, 0];
+  const PLAY_DAYS = [2, 4, 6]; // Tuesday, Thursday, Saturday
   const LAST_PLAYER_KEY = "play-rsvp.lastPlayerName";
-  const DEFAULT_COURT_PAYER = "Hoan Nguyen";
+  const DEFAULT_COURT_PAYER = ""; // no fixed payer; falls back to remembered player
   const STATUS_OPTIONS = ["Not requested", "Requested", "Paid", "Credit carryover"];
   const BILLING_CACHE_PREFIX = "billing:backend:";
   const BILLING_MONTHS_CACHE_PREFIX = "billing:months:";
@@ -487,7 +469,7 @@
     const steps = [
       [18, "Opening billing month..."],
       [42, "Loading RSVP attendance..."],
-      [66, "Reading court and birdie rows..."],
+      [66, "Reading field and extras rows..."],
       [86, "Calculating member balances..."],
     ];
     let index = 0;
@@ -1313,8 +1295,8 @@
     );
     const metrics = [
       ["Expected Expense", formatMoney(courtTotal + birdieTotal), "success"],
-      ["Court Total", formatMoney(courtTotal), ""],
-      ["Birdie Total", formatMoney(birdieTotal), ""],
+      ["Field Total", formatMoney(courtTotal), ""],
+      ["Extras Total", formatMoney(birdieTotal), ""],
       ["Weighted Spots", formatNumber(billing.totalWeightedSpots, 1), ""],
       ["Open Balance", formatMoney(openBalance), openBalance > 0 ? "warning" : "success"],
       ["Credits", formatMoney(creditTotal), creditTotal > 0 ? "credit" : ""],
@@ -1399,7 +1381,7 @@
 
     renderTable(
       dailyTable,
-      ["Date", "Weight", "Spots", "Court Fee", "Court / Player", "Birdie / Spot", "Total / Spot", "Status"],
+      ["Date", "Weight", "Spots", "Field Fee", "Field / Player", "Extras / Spot", "Total / Spot", "Status"],
       billing.daily.map((day) => [
         { text: formatDisplayDate(day.date), className: "name-cell" },
         { text: `${formatNumber(day.weight, 1)}x` },
@@ -1408,7 +1390,7 @@
         { text: formatMoney(day.courtPerSpot), className: "numeric-cell" },
         { text: formatMoney(day.birdiePerSpot), className: "numeric-cell" },
         { text: formatMoney(day.totalPerSpot), className: "numeric-cell" },
-        makeBadge(day.activeBlocks ? "Clean" : "No court", day.activeBlocks ? "paid" : "review"),
+        makeBadge(day.activeBlocks ? "Clean" : "No field", day.activeBlocks ? "paid" : "review"),
       ]),
       ["Total", "", String(billing.totalSpots), formatMoney(courtTotal), "", formatMoney(birdieTotal), formatMoney(courtTotal + birdieTotal), ""],
     );
@@ -1463,7 +1445,7 @@
               );
               setCourtBlocks(blocks);
             },
-            "Court block updated.",
+            "Field block updated.",
             courtFeedback,
           );
         });
@@ -1587,7 +1569,7 @@
                 ),
               });
             },
-            "Birdie purchase removed.",
+            "Extras purchase removed.",
             birdieFeedback,
           );
         });
@@ -1637,7 +1619,7 @@
   function renderMembers() {
     renderTable(
       memberTable,
-      ["Player", "Spots", "Birdie Fee", "Court Fee", "Paid Credits", "Net Balance", "Payment Status", "Action"],
+      ["Player", "Spots", "Extras Fee", "Field Fee", "Paid Credits", "Net Balance", "Payment Status", "Action"],
       billing.members.map((member) => {
         const statusCell = document.createElement("td");
         const select = document.createElement("select");
@@ -1790,8 +1772,8 @@
     localStorage.setItem(LAST_PLAYER_KEY, member.name);
     appendDetailRow("Attendance", `${member.spots} spots`);
     appendDetailRow("Weighted spots", formatNumber(member.weightedSpots, 1));
-    appendDetailRow("Birdie fee", formatMoney(member.birdieFee));
-    appendDetailRow("Court fee", formatMoney(member.courtFee));
+    appendDetailRow("Extras fee", formatMoney(member.birdieFee));
+    appendDetailRow("Field fee", formatMoney(member.courtFee));
     appendDetailRow("Paid credits", formatMoney(member.credits), member.credits ? "money-credit" : "");
     appendDetailRow("Net balance", formatMoney(member.netBalance), getMoneyClass(member.netBalance));
     appendDetailRow("Payment", getPaymentStatus(member.name));
@@ -2167,7 +2149,7 @@
         status: block.status,
       },
       () => setCourtBlocks([...getCourtBlocks(), block]),
-      "Court block added.",
+      "Field block added.",
       courtFeedback,
     );
   }
@@ -2199,7 +2181,7 @@
           purchases: [...getBirdieState().purchases, purchase],
         });
       },
-      "Birdie purchase added.",
+      "Extras purchase added.",
       birdieFeedback,
     );
   }
@@ -2211,7 +2193,7 @@
       (candidate) => candidate.key === birdieUsageBatchInput.value,
     );
     if (!batch) {
-      setSectionStatus(birdieFeedback, "Choose an available birdie batch first.", "error");
+      setSectionStatus(birdieFeedback, "Choose an available extras item first.", "error");
       return;
     }
 
@@ -2247,7 +2229,7 @@
           purchases: [...getBirdieState().purchases, usage],
         });
       },
-      "Birdie usage added.",
+      "Extras usage added.",
       birdieFeedback,
     );
   }
@@ -2360,7 +2342,7 @@
         setStatus(
           isAdmin
             ? "Admin billing tools enabled on this browser."
-            : "Member view. Court and birdie editing is hidden.",
+            : "Member view. Field and extras editing is hidden.",
           isAdmin ? "success" : "",
         );
         if (wasAdmin !== isAdmin) {

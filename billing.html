@@ -88,8 +88,8 @@
           <nav class="billing-tabs" aria-label="Billing sections">
             <a href="#member-detail-section">My Bill</a>
             <a href="#member-section">Members</a>
-            <a class="admin-only" href="#court-section">Court Fees</a>
-            <a class="admin-only" href="#birdie-section">Birdies</a>
+            <a class="admin-only" href="#court-section">Field Fees</a>
+            <a class="admin-only" href="#birdie-section">Extras</a>
           </nav>
 
           <section class="billing-layout">
@@ -133,7 +133,7 @@
               <section id="court-section" class="billing-band admin-only" aria-labelledby="court-heading">
               <div class="billing-band-header">
                 <div>
-                  <h2 id="court-heading">Court Reservation Blocks</h2>
+                  <h2 id="court-heading">Field Reservation Blocks</h2>
                   <p>Booker enters what they paid. Admin can audit, cancel, or remove wrong blocks.</p>
                 </div>
               </div>
@@ -154,14 +154,14 @@
                   <small class="field-help">Use H:MM, for example 1:30.</small>
                 </label>
                 <label class="field">
-                  <span>Courts</span>
+                  <span>Fields</span>
                   <input id="court-count" type="number" min="1" max="8" step="1" value="1" required />
                 </label>
                 <label class="field">
                   <span>Rate</span>
                   <select id="court-rate-preset" required>
-                    <option value="14.89">Bellevue weekday - $14.89/hr</option>
-                    <option value="27.63">Renton weekend - $27.63/hr</option>
+                    <option value="14.89">Weekday - $14.89/hr</option>
+                    <option value="27.63">Weekend - $27.63/hr</option>
                     <option value="other">Other</option>
                   </select>
                 </label>
@@ -188,8 +188,8 @@
             <section id="birdie-section" class="billing-band admin-only" aria-labelledby="birdie-heading">
               <div class="billing-band-header">
                 <div>
-                  <h2 id="birdie-heading">Birdies</h2>
-                  <p>Inventory and purchases feed the weighted per-spot birdie share.</p>
+                  <h2 id="birdie-heading">Extras</h2>
+                  <p>Purchases (balls, bibs, water, etc.) feed the weighted per-spot extras share.</p>
                 </div>
               </div>
               <p id="birdie-feedback" class="section-status" role="status" aria-live="polite"></p>
@@ -200,15 +200,15 @@
                   <input id="birdie-date" type="date" required />
                 </label>
                 <label class="field">
-                  <span>Batch</span>
-                  <input id="birdie-batch" type="text" placeholder="Lingmei 90" required />
+                  <span>Item</span>
+                  <input id="birdie-batch" type="text" placeholder="e.g. New ball x3" required />
                 </label>
                 <label class="field">
-                  <span>Tubes</span>
+                  <span>Qty</span>
                   <input id="birdie-tubes" type="number" min="0.5" step="0.5" value="10" required />
                 </label>
                 <label class="field">
-                  <span>Unit</span>
+                  <span>Unit $</span>
                   <input id="birdie-unit-price" type="number" min="0" step="0.01" value="35" required />
                 </label>
                 <label class="field">
@@ -228,14 +228,14 @@
                   <input id="birdie-usage-date" type="date" required />
                 </label>
                 <label class="field">
-                  <span>Batch</span>
+                  <span>Item</span>
                   <select id="birdie-usage-batch" required></select>
                 </label>
                 <label class="field">
-                  <span>Tubes Used</span>
+                  <span>Qty Used</span>
                   <input id="birdie-usage-tubes" type="number" min="0.5" step="0.5" value="1" required />
                 </label>
-                <button class="secondary-button" type="submit">Update Inventory</button>
+                <button class="secondary-button" type="submit">Update Usage</button>
               </form>
 
               <div class="table-wrap compact-table-wrap">
