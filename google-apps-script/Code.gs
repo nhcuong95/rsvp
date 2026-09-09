@@ -25,7 +25,7 @@ const HEADERS = [
   "Submitted At",
   "Updated At",
 ];
-const ROSTER_HEADERS = ["Name", "Venmo", "Facebook", "Note"];
+const ROSTER_HEADERS = ["Name", "Venmo", "Facebook", "Note", "Zelle"];
 const BILLING_COURT_HEADERS = [
   "ID",
   "Month",
@@ -905,7 +905,7 @@ function getRosterSheet_() {
   if (shouldSeedRoster && sheet.getLastRow() < 2) {
     sheet
       .getRange(2, 1, PLAYERS.length, ROSTER_HEADERS.length)
-      .setValues(PLAYERS.map((name) => [name, "", "", ""]));
+      .setValues(PLAYERS.map((name) => [name, "", "", "", ""]));
   }
 
   return sheet;
@@ -1018,6 +1018,7 @@ function getRoster_() {
       venmo: String(row[1] || "").trim(),
       messenger: String(row[2] || "").trim(),
       note: String(row[3] || "").trim(),
+      zelle: String(row[4] || "").trim(),
     }))
     .filter((member) => member.name)
     .sort((first, second) => first.name.localeCompare(second.name));
@@ -1062,13 +1063,14 @@ function saveRosterMember_(params) {
     const name = sanitizeText_(
       required_(params.playerName || params.name, "Missing player name").trim(),
     );
-    const venmo = normalizeVenmo_(required_(params.venmo, "Missing Venmo"));
+    const venmo = params.venmo ? normalizeVenmo_(params.venmo) : "";
     const messenger = params.messenger ? normalizeMessenger_(params.messenger) : "";
     const note = sanitizeText_(params.note || "");
+    const zelle = normalizeZelle_(params.zelle);
     const sheet = getRosterSheet_();
     const oldRow = oldName ? findRosterRow_(sheet, oldName) : null;
     const row = findRosterRow_(sheet, name);
-    const values = [name, venmo, messenger, note];
+    const values = [name, venmo, messenger, note, zelle];
 
     if (oldName && normalize_(oldName) !== normalize_(name)) {
       if (!oldRow) {
@@ -1126,11 +1128,13 @@ function completeRosterMemberInfo_(params) {
       venmo: String(values[1] || "").trim(),
       messenger: String(values[2] || "").trim(),
       note: String(values[3] || "").trim(),
+      zelle: String(values[4] || "").trim(),
     };
     const requested = {
       venmo: params.venmo ? normalizeVenmo_(params.venmo) : "",
       messenger: params.messenger ? normalizeMessenger_(params.messenger) : "",
       note: sanitizeText_(params.note || ""),
+      zelle: normalizeZelle_(params.zelle),
     };
     const updatedFields = [];
 
@@ -1151,6 +1155,15 @@ function completeRosterMemberInfo_(params) {
         throw new Error(
           "Admin login is required to change an existing Facebook profile.",
         );
+      }
+    }
+
+    if (requested.zelle) {
+      if (!current.zelle) {
+        values[4] = requested.zelle;
+        updatedFields.push("Zelle");
+      } else if (normalize_(current.zelle) !== normalize_(requested.zelle)) {
+        throw new Error("Admin login is required to change an existing Zelle.");
       }
     }
 
@@ -3097,6 +3110,21 @@ function normalizeVenmo_(value) {
   }
 
   return `@${handle}`;
+}
+
+function normalizeZelle_(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text)) {
+    return text.toLowerCase();
+  }
+  const digits = text.replace(/[^\d]/g, "");
+  if (digits.length >= 10 && digits.length <= 11) {
+    return digits;
+  }
+  return sanitizeText_(text);
 }
 
 function normalizeMessenger_(value) {

@@ -10,6 +10,7 @@
   const nameInput = document.querySelector("#member-name");
   const memberNameList = document.querySelector("#member-name-list");
   const venmoInput = document.querySelector("#venmo");
+  const zelleInput = document.querySelector("#zelle");
   const messengerInput = document.querySelector("#messenger");
   const noteInput = document.querySelector("#member-note");
   const memberSearch = document.querySelector("#member-search");
@@ -173,6 +174,7 @@
     editingOriginalName = member.name || "";
     nameInput.value = member.name || "";
     venmoInput.value = member.venmo || "";
+    zelleInput.value = member.zelle || "";
     messengerInput.value = member.messenger || "";
     noteInput.value = member.note || "";
     updateSaveButtonLabel();
@@ -414,7 +416,7 @@
     }
 
     return roster.filter((member) =>
-      [member.name, member.venmo, member.messenger, member.note].some(
+      [member.name, member.venmo, member.zelle, member.messenger, member.note].some(
         (value) => normalizeSearchText(value).includes(query),
       ),
     );
@@ -441,7 +443,7 @@
 
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const headers = ["Name", "Venmo", "Facebook", "Note"];
+    const headers = ["Name", "Venmo", "Zelle", "Facebook", "Note"];
     if (adminToken) {
       headers.push("Actions");
     }
@@ -493,6 +495,8 @@
           : "",
         "venmo",
       ).dataset.label = "Venmo";
+      appendLinkCell(row, member.zelle || "", "", "", "zelle").dataset.label =
+        "Zelle";
       const messengerUrl = getMessengerUrl(member.messenger);
       appendLinkCell(
         row,
@@ -635,6 +639,7 @@
     const payload = {
       playerName: nameInput.value.trim(),
       venmo: venmoInput.value.trim(),
+      zelle: zelleInput.value.trim(),
       messenger: messengerInput.value.trim(),
       note: noteInput.value.trim(),
     };

@@ -98,6 +98,7 @@
   const memberFeedback = document.querySelector("#member-feedback");
   const memberTable = document.querySelector("#member-billing-table");
   const markMonthPaidButton = document.querySelector("#mark-month-paid-button");
+  const copyDuesButton = document.querySelector("#copy-dues-button");
   const memberSelect = document.querySelector("#member-detail-select");
   const memberDetail = document.querySelector("#member-detail");
 
@@ -2249,6 +2250,104 @@
     );
   }
 
+  function getUnpaidMembers() {
+    return billing.members
+      .filter(
+        (member) =>
+          roundMoney(member.netBalance) > 0.005 &&
+          normalizeText(getPaymentStatus(member.name)) !== "paid",
+      )
+      .sort((first, second) => second.netBalance - first.netBalance);
+  }
+
+  function buildDuesMessage() {
+    const unpaid = getUnpaidMembers();
+    if (!unpaid.length) {
+      return null;
+    }
+
+    const total = unpaid.reduce(
+      (sum, member) => sum + roundMoney(member.netBalance),
+      0,
+    );
+    const lines = unpaid.map(
+      (member) => `• ${member.name} — ${formatMoney(member.netBalance)}`,
+    );
+
+    return [
+      `🏸 Badminton dues — ${formatMonthLabel(monthInput.value)}`,
+      "",
+      `Please Venmo @${VENMO_RECIPIENT_USERNAME} (${VENMO_RECIPIENT_NAME}). Add your name + the month in the note.`,
+      "",
+      ...lines,
+      "",
+      `Total to collect: ${formatMoney(total)} (${unpaid.length} player${
+        unpaid.length === 1 ? "" : "s"
+      })`,
+      "Thanks! 🙏",
+    ].join("\n");
+  }
+
+  async function copyToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fall through to the legacy copy path below.
+      }
+    }
+
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.append(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      return copied;
+    } catch {
+      return false;
+    }
+  }
+
+  async function handleCopyDues() {
+    if (!billing?.members?.length) {
+      setSectionStatus(memberFeedback, "No member balances are loaded for this month.", "error");
+      return;
+    }
+
+    const message = buildDuesMessage();
+    if (!message) {
+      setSectionStatus(
+        memberFeedback,
+        "Everyone is paid up — no dues to collect for this month.",
+        "success",
+      );
+      return;
+    }
+
+    const copied = await copyToClipboard(message);
+    if (copied) {
+      setSectionStatus(
+        memberFeedback,
+        "Dues message copied. Paste it into your Messenger group chat.",
+        "success",
+      );
+      return;
+    }
+
+    window.prompt("Copy the dues message below, then paste it into Messenger:", message);
+    setSectionStatus(
+      memberFeedback,
+      "Could not copy automatically. Copy the message from the dialog.",
+      "error",
+    );
+  }
+
   async function handleMarkMonthPaid() {
     if (!billing?.members?.length) {
       setSectionStatus(memberFeedback, "No member balances are loaded for this month.", "error");
@@ -2391,6 +2490,7 @@
   birdieUsageBatchInput.addEventListener("change", updateBirdieUsageMax);
   finalizationForm.addEventListener("submit", handleFinalizationSubmit);
   markMonthPaidButton.addEventListener("click", handleMarkMonthPaid);
+  copyDuesButton.addEventListener("click", handleCopyDues);
   memberSelect.addEventListener("change", () => renderMemberDetail(memberSelect.value));
 
   initializeAdminVisibility();

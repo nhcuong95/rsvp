@@ -44,14 +44,24 @@
             </label>
 
             <label class="field">
-              <span>Venmo <small class="field-tag required-tag">Required</small></span>
+              <span>Venmo <small class="field-tag">Optional</small></span>
               <input
                 id="venmo"
                 name="venmo"
                 autocomplete="off"
                 placeholder="@username"
-                title="Used for payment collection"
-                required
+                title="Used for payment collection (Venmo or Zelle)"
+              />
+            </label>
+
+            <label class="field">
+              <span>Zelle <small class="field-tag">Optional</small></span>
+              <input
+                id="zelle"
+                name="zelle"
+                autocomplete="off"
+                placeholder="Email or phone"
+                title="Used for payment collection (Venmo or Zelle)"
               />
             </label>
 
@@ -96,7 +106,7 @@
             <input
               id="member-search"
               autocomplete="off"
-              placeholder="Search by name, Venmo, Facebook, or note"
+              placeholder="Search by name, Venmo, Zelle, Facebook, or note"
               type="search"
             />
             <small class="field-help">Click a member row to update that member.</small>
@@ -110,6 +120,6 @@
     </main>
 
     <script src="./admin-auth.js?v=20260811-1"></script>
-    <script src="./roster.js?v=20260702-1"></script>
+    <script src="./roster.js?v=20260909-1"></script>
   </body>
 </html>

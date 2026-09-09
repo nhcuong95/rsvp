@@ -5,12 +5,12 @@
   <circle cx="206" cy="262" r="56" fill="#177245"/>
   <path d="M174 266c64-46 101-48 137-11" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round"/>
   <path d="M181 300c50-34 82-34 111-8" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round"/>
-  <text x="306" y="240" fill="#153326" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="700">Weekly play signup</text>
+  <text x="306" y="240" fill="#153326" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="700">Pickup soccer</text>
   <text x="306" y="345" fill="#102018" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="800">Who's In</text>
   <text x="306" y="435" fill="#102018" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="800">This Week?</text>
-  <text x="306" y="535" fill="#40564a" font-family="Arial, Helvetica, sans-serif" font-size="38">Reserve your badminton spot</text>
-  <text x="306" y="585" fill="#40564a" font-family="Arial, Helvetica, sans-serif" font-size="38">and see who is joining.</text>
+  <text x="306" y="535" fill="#40564a" font-family="Arial, Helvetica, sans-serif" font-size="38">Reserve your spot for</text>
+  <text x="306" y="585" fill="#40564a" font-family="Arial, Helvetica, sans-serif" font-size="38">soccer pickup games.</text>
   <rect x="306" y="680" width="690" height="84" rx="22" fill="#eef7f1"/>
-  <text x="342" y="735" fill="#177245" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700">someguylike.github.io/rsvp</text>
-  <text x="306" y="855" fill="#6b7d72" font-family="Arial, Helvetica, sans-serif" font-size="30">Tue, Thu, Fri, Sun at 6AM</text>
+  <text x="342" y="735" fill="#177245" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700">nhcuong95.github.io/rsvp</text>
+  <text x="306" y="855" fill="#6b7d72" font-family="Arial, Helvetica, sans-serif" font-size="30">Tue, Thu, Sat</text>
 </svg>

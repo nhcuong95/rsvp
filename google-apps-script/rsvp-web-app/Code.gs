@@ -17,7 +17,7 @@ const HEADERS = [
   "Submitted At",
   "Updated At",
 ];
-const ROSTER_HEADERS = ["Name", "Venmo", "Facebook", "Note"];
+const ROSTER_HEADERS = ["Name", "Venmo", "Facebook", "Note", "Zelle"];
 const AUDIT_HEADERS = [
   "Logged At",
   "Action",
@@ -446,6 +446,7 @@ function getRosterFromSheet_() {
       venmo: String(row[1] || "").trim(),
       messenger: String(row[2] || "").trim(),
       note: String(row[3] || "").trim(),
+      zelle: String(row[4] || "").trim(),
     }))
     .filter((member) => member.name)
     .sort((first, second) => first.name.localeCompare(second.name));
