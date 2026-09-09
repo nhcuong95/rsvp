@@ -13,13 +13,12 @@ and I'll wire them into the code for you.
 
 ---
 
-## Part 1 — Create the Google Sheet
+## Part 1 — Create the Google Sheet ✅ DONE
 
-1. Go to <https://sheets.google.com> and create a **blank** spreadsheet.
-2. Name it something like `Soccer RSVP`.
-3. Copy its **Sheet ID** from the URL. The URL looks like:
-   `https://docs.google.com/spreadsheets/d/`**`THIS_LONG_ID_HERE`**`/edit`
-   Save that ID — you'll paste it in Part 3.
+Claude already created this in your Drive:
+
+- **Sheet:** [Soccer RSVP](https://docs.google.com/spreadsheets/d/1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ/edit)
+- **Sheet ID:** `1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ`
 
 > You don't need to add any tabs or headers — the scripts create them automatically on first run.
 
@@ -32,7 +31,7 @@ and I'll wire them into the code for you.
    `google-apps-script/rsvp-web-app/Code.gs` from this repo.
 3. Left sidebar → **Project Settings** (gear icon) → **Script Properties** → **Add script property**:
    - Property: `RSVP_SPREADSHEET_ID`
-   - Value: *your Sheet ID from Part 1*
+   - Value: `1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ`
 4. **Deploy → New deployment → Web app**:
    - Execute as: **Me**
    - Who has access: **Anyone**  ← required so players don't need a Google login
@@ -46,19 +45,16 @@ and I'll wire them into the code for you.
 1. Back in your **Google Sheet**, open **Extensions → Apps Script**. (This creates a
    script *bound* to the sheet — that's intentional; it's different from Part 2.)
 2. Delete the sample code. Paste the entire contents of `google-apps-script/Code.gs`.
-3. Near the top, line 10, change the hardcoded Sheet ID to **yours**:
-   ```js
-   const EXPORT_SPREADSHEET_ID = "PASTE_YOUR_SHEET_ID_HERE";
-   ```
-4. **Project Settings → Script Properties → Add script property**:
+   (The Sheet ID on line 10 is **already set to yours** — nothing to edit there.)
+3. **Project Settings → Script Properties → Add script property**:
    - Property: `ADMIN_PASSWORD`
    - Value: *a password you choose* (this is what unlocks the admin pages — pick something
      only organizers know)
-5. **Deploy → New deployment → Web app**:
+4. **Deploy → New deployment → Web app**:
    - Execute as: **Me**
    - Who has access: **Anyone**
-6. Authorize when prompted.
-7. Copy the **Web app URL** (ends in `/exec`). This is your **ADMIN URL**.
+5. Authorize when prompted.
+6. Copy the **Web app URL** (ends in `/exec`). This is your **ADMIN URL**.
 
 ---
 
