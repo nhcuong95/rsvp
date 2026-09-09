@@ -1,8 +1,8 @@
 (function () {
   const APPS_SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbzcjWqKlqoILjYBAZLZ1Ka1xZ5QDXL_Mq65kOZXsTAxpNhp39pIkbIDPXiNjGOah0EF/exec";
+    "https://script.google.com/macros/s/AKfycbyc_NEAxzm_0R2Mp05vHYURAHKNYqvjccBFTBh7JAgi7UThHi-W3F-2qM9akXiyrdJGMg/exec";
   const RSVP_PUBLIC_APPS_SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbwkQT5n28qD0wVpRCA3qgJs5fZy_YG_TmNIXAyqQ-AZFTYJVyMOCjGKfsE-D9_R4x64VQ/exec";
+    "https://script.google.com/macros/s/AKfycbxKfZ8FlMDgVJ5weT9rOmFbfPlExX0DIFNuvCuvumkFUBgGu1Jzc77_utdzp_JghDyL/exec";
 
   const form = document.querySelector("#roster-form");
   const adminAuth = window.RsvpAdminAuth;
