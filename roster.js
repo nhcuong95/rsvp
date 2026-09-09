@@ -30,6 +30,14 @@
   function renderAdminState() {
     adminEyebrow.hidden = !adminToken;
     noteInput.disabled = false;
+    // Contact details (Venmo/Zelle/Facebook/Note) are admin-only to avoid
+    // disclosing members' payment info to everyone who opens the page.
+    [venmoInput, zelleInput, messengerInput, noteInput].forEach((input) => {
+      const field = input.closest(".field");
+      if (field) {
+        field.hidden = !adminToken;
+      }
+    });
     updateSaveButtonLabel();
     renderRoster();
   }
@@ -443,10 +451,9 @@
 
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const headers = ["Name", "Venmo", "Zelle", "Facebook", "Note"];
-    if (adminToken) {
-      headers.push("Actions");
-    }
+    const headers = adminToken
+      ? ["Name", "Venmo", "Zelle", "Facebook", "Note", "Actions"]
+      : ["Name"];
     headers.forEach((header) => {
       appendCell(headerRow, "th", header);
     });
@@ -486,28 +493,30 @@
         }
       });
       appendMemberNameCell(row, member);
-      appendLinkCell(
-        row,
-        member.venmo || "",
-        venmoUrl,
-        member.venmo && !venmoUrl
-          ? "Invalid Venmo handle or profile URL. Use a normal hyphen, not a long dash."
-          : "",
-        "venmo",
-      ).dataset.label = "Venmo";
-      appendLinkCell(row, member.zelle || "", "", "", "zelle").dataset.label =
-        "Zelle";
-      const messengerUrl = getMessengerUrl(member.messenger);
-      appendLinkCell(
-        row,
-        getMessengerDisplayValue(member.messenger),
-        messengerUrl,
-        member.messenger && !messengerUrl
-          ? "Invalid Facebook profile URL. Use a profile URL or plain profile handle."
-          : "",
-        "facebook",
-      ).dataset.label = "Facebook";
-      appendNoteCell(row, member);
+      if (adminToken) {
+        appendLinkCell(
+          row,
+          member.venmo || "",
+          venmoUrl,
+          member.venmo && !venmoUrl
+            ? "Invalid Venmo handle or profile URL. Use a normal hyphen, not a long dash."
+            : "",
+          "venmo",
+        ).dataset.label = "Venmo";
+        appendLinkCell(row, member.zelle || "", "", "", "zelle").dataset.label =
+          "Zelle";
+        const messengerUrl = getMessengerUrl(member.messenger);
+        appendLinkCell(
+          row,
+          getMessengerDisplayValue(member.messenger),
+          messengerUrl,
+          member.messenger && !messengerUrl
+            ? "Invalid Facebook profile URL. Use a profile URL or plain profile handle."
+            : "",
+          "facebook",
+        ).dataset.label = "Facebook";
+        appendNoteCell(row, member);
+      }
       if (adminToken) {
         const actions = document.createElement("td");
         const removeButton = document.createElement("button");
