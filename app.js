@@ -158,7 +158,7 @@
     });
     if (date < today) {
       return {
-        day: `${day} @ 6AM`,
+        day: day,
         full,
       };
     }
@@ -168,8 +168,8 @@
     return {
       day:
         date.getTime() === today.getTime()
-          ? "Today @ 6AM"
-          : `${prefix} ${day} @ 6AM`,
+          ? "Today"
+          : `${prefix} ${day}`,
       full,
     };
   }
