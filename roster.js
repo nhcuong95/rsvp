@@ -664,17 +664,14 @@
       return;
     }
 
-    if (!payload.venmo) {
-      setStatus("Enter a Venmo handle.", "error");
-      return;
+    if (payload.venmo) {
+      const venmoHandle = normalizeVenmoHandle(payload.venmo);
+      if (!venmoHandle) {
+        setStatus("Enter a valid Venmo handle or Venmo profile URL.", "error");
+        return;
+      }
+      payload.venmo = `@${venmoHandle}`;
     }
-
-    const venmoHandle = normalizeVenmoHandle(payload.venmo);
-    if (!venmoHandle) {
-      setStatus("Enter a valid Venmo handle or Venmo profile URL.", "error");
-      return;
-    }
-    payload.venmo = `@${venmoHandle}`;
 
     if (payload.messenger) {
       const messengerContact = normalizeMessengerContact(payload.messenger);
