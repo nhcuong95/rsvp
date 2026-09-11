@@ -374,7 +374,7 @@
       }));
 
       await runStep(
-        "Birdie inventory purchases",
+        "Extras inventory purchases",
         backfill.birdieInventoryPurchases,
         (purchase, index) => ({
           action: "saveBirdiePurchase",

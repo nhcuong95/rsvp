@@ -13,7 +13,7 @@ Static RSVP page for weekly play sessions.
 - Existing RSVPs show a confirmation dialog before they are overwritten.
 - After submit and when the date changes, the page shows the reserved participant tally for that date.
 - `export.html` exports a selected month, then renders clickable group heatmap and player-filtered overview.
-- `billing.html` renders monthly billing from attendance, editable court blocks, birdie purchases, and local payment statuses.
+- `billing.html` renders monthly billing from attendance, editable field blocks, extras purchases, and local payment statuses.
 - `admin.html` lets an admin edit the current month attendance in a player-by-date table.
 - `roster.html` lets an admin add, remove, and update roster Venmo and Messenger details.
 
@@ -29,7 +29,7 @@ GitHub Pages can host `index.html`, `styles.css`, and `app.js` for free, but it 
 - `admin.html`, `admin.js`: admin page for editing player/date attendance counts.
 - `roster.html`, `roster.js`: admin page for roster membership, Venmo, and Messenger details.
 - `export.html`, `export.js`: admin page for monthly roster export.
-- `billing.html`, `billing.js`: billing page for court block entry, birdie cost entry, and member balance calculation.
+- `billing.html`, `billing.js`: billing page for field block entry, extras cost entry, and member balance calculation.
 - `billing-parser.js`: parser for old finalized monthly billing CSVs, kept for reconciliation/testing.
 - `google-apps-script/Code.gs`: Apps Script backend source. Paste this into Apps Script and deploy it as the Web App backend.
 

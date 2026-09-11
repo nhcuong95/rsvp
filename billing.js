@@ -1719,7 +1719,7 @@
   }
 
   function getVenmoPaymentNote(member) {
-    return `${member.name} - Badminton ${formatMonthLabel(monthInput.value)}`;
+    return `${member.name} - Soccer ${formatMonthLabel(monthInput.value)}`;
   }
 
   function buildVenmoPaymentUrls(member) {
@@ -1840,8 +1840,8 @@
     return [
       `${attendanceRows.length} play dates`,
       `${billing.totalSpots} spots`,
-      `${activeCourtBlocks.length} court blocks (${formatMoney(courtTotal)})`,
-      `${billedBirdies.length} billed birdie rows (${formatMoney(birdieTotal)})`,
+      `${activeCourtBlocks.length} field blocks (${formatMoney(courtTotal)})`,
+      `${billedBirdies.length} billed extras rows (${formatMoney(birdieTotal)})`,
     ].join(" / ");
   }
 
@@ -2287,7 +2287,7 @@
     );
 
     return [
-      `🏸 Badminton dues — ${formatMonthLabel(monthInput.value)}`,
+      `⚽ Soccer dues — ${formatMonthLabel(monthInput.value)}`,
       "",
       `Please pay ${VENMO_RECIPIENT_NAME} — Venmo @${VENMO_RECIPIENT_USERNAME} or Zelle ${ZELLE_RECIPIENT_PHONE}. Add your name + the month in the note.`,
       "",
