@@ -35,7 +35,14 @@
     };
   }
 
+  function applyBodyAdminClass() {
+    if (document.body) {
+      document.body.classList.toggle("is-admin", Boolean(adminToken));
+    }
+  }
+
   function notify() {
+    applyBodyAdminClass();
     const state = getState();
     listeners.forEach((listener) => listener(state));
   }
@@ -131,6 +138,14 @@
     listeners.add(listener);
     listener(getState());
     return () => listeners.delete(listener);
+  }
+
+  // Optimistically mark admin if a token is stored, so admin-only UI does not
+  // flash hidden on load for a logged-in admin. validateStoredAuth() corrects
+  // this (removing the class) if the token turns out to be invalid.
+  const storedAuth = readAdminAuth();
+  if (storedAuth && storedAuth.token && document.body) {
+    document.body.classList.add("is-admin");
   }
 
   const ready = validateStoredAuth();

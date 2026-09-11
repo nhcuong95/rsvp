@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Manage Roster</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260609-22" />
+    <link rel="stylesheet" href="./styles.css?v=20260911-3" />
   </head>
   <body>
     <main class="shell">
@@ -20,14 +20,19 @@
           <label class="page-nav-button" for="page-nav-toggle" aria-label="Open page menu">☰</label>
           <div class="page-nav-links">
             <a href="./index.html">RSVP</a>
-            <a class="active" href="./roster.html" aria-current="page">Members</a>
+            <a class="admin-only active" href="./roster.html" aria-current="page">Members</a>
             <a href="./export.html">Report</a>
             <a href="./billing.html">Billing</a>
             <a href="./admin.html">Admin</a>
           </div>
         </nav>
 
-        <form id="roster-form" class="form">
+        <p class="non-admin-only member-gate" role="status">
+          Member management is admin-only. Log in on the
+          <a href="./admin.html">Admin</a> tab to view or update member information.
+        </p>
+
+        <form id="roster-form" class="form admin-only">
           <div class="roster-form-grid">
             <label class="field">
               <span>Name</span>
@@ -96,7 +101,7 @@
           </div>
         </form>
 
-        <section class="admin-preview">
+        <section class="admin-preview admin-only">
           <div class="preview-heading">
             <h2>Members</h2>
             <p id="member-count">Loading...</p>
@@ -119,7 +124,7 @@
       </section>
     </main>
 
-    <script src="./admin-auth.js?v=20260811-1"></script>
-    <script src="./roster.js?v=20260909-4"></script>
+    <script src="./admin-auth.js?v=20260911-3"></script>
+    <script src="./roster.js?v=20260911-3"></script>
   </body>
 </html>

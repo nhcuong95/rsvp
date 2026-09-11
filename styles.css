@@ -1336,6 +1336,30 @@ body:not(.billing-admin) .admin-payment-column {
   padding: 2px 7px;
 }
 
+/* Admin-gated visibility: driven by the body.is-admin class set in
+   admin-auth.js. .admin-only is hidden unless logged in as admin;
+   .non-admin-only is the inverse (shown only to non-admins). */
+body:not(.is-admin) .admin-only {
+  display: none !important;
+}
+body.is-admin .non-admin-only {
+  display: none !important;
+}
+
+.member-gate {
+  margin: 8px 0 0;
+  padding: 16px 18px;
+  border: 1px solid #c7d2e0;
+  border-radius: 12px;
+  background: #f2f6fb;
+  color: #3a4d63;
+  font-weight: 600;
+}
+.member-gate a {
+  color: #1d4ed8;
+  font-weight: 800;
+}
+
 .admin-lock-bar {
   display: flex;
   align-items: center;

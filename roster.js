@@ -561,14 +561,14 @@
 
   async function saveMember(payload) {
     saveButton.disabled = true;
-    setStatus(adminToken ? "Saving member..." : "Adding missing info...", "");
+    setStatus("Saving member...", "");
 
     try {
-      if (payload.oldPlayerName && !adminToken) {
-        throw new Error("Admin login is required to create or rename members.");
+      if (!adminToken) {
+        throw new Error("Admin login is required to manage members.");
       }
       const result = await requestAppsScript({
-        action: adminToken ? "saveRosterMember" : "completeRosterMemberInfo",
+        action: "saveRosterMember",
         adminToken,
         ...payload,
       });
@@ -658,9 +658,8 @@
       return;
     }
 
-    const existingMember = findRosterMemberByName(payload.playerName);
-    if (!adminToken && (!existingMember || isRenamingMember())) {
-      setStatus("Admin login is required to create or rename members.", "error");
+    if (!adminToken) {
+      setStatus("Admin login is required to manage members.", "error");
       return;
     }
 
@@ -710,6 +709,15 @@
   function handleAdminStateChange(state) {
     adminToken = state.token || "";
     renderAdminState();
+    // Member management (and the contact data it loads) is admin-only. Only
+    // fetch the roster when logged in as admin; otherwise keep it empty.
+    if (adminToken) {
+      loadRoster();
+    } else {
+      roster = [];
+      renderMemberNameOptions();
+      renderRoster();
+    }
   }
 
   adminAuth.onChange(handleAdminStateChange);
@@ -718,5 +726,4 @@
       window.location.reload();
     }
   });
-  loadRoster();
 })();
