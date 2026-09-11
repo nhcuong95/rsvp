@@ -1,6 +1,9 @@
 (function () {
   const APPS_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbxKfZ8FlMDgVJ5weT9rOmFbfPlExX0DIFNuvCuvumkFUBgGu1Jzc77_utdzp_JghDyL/exec";
+  // Admin backend (locking is an admin-only action handled there).
+  const ADMIN_APPS_SCRIPT_URL =
+    "https://script.google.com/macros/s/AKfycbyc_NEAxzm_0R2Mp05vHYURAHKNYqvjccBFTBh7JAgi7UThHi-W3F-2qM9akXiyrdJGMg/exec";
   let PLAYERS = [
     "Ly Phung Hoang",
     "Cuong Tipu",
@@ -68,6 +71,10 @@
   const tallySection = document.querySelector("#tally-section");
   const tallyCount = document.querySelector("#tally-count");
   const tallyList = document.querySelector("#tally-list");
+  const adminLockBar = document.querySelector("#admin-lock-bar");
+  const adminLockStatus = document.querySelector("#admin-lock-status");
+  const adminLockToggle = document.querySelector("#admin-lock-toggle");
+  let adminToken = "";
   const overrideDialog = document.querySelector("#override-dialog");
   const previousRsvp = document.querySelector("#previous-rsvp");
   const newRsvp = document.querySelector("#new-rsvp");
@@ -201,6 +208,7 @@
     setRemoveRsvpAction(null);
     renderParticipantOptions();
     updatePlayerMemory();
+    updateAdminLockBar();
     loadTally(value);
   }
 
@@ -211,6 +219,7 @@
     setRemoveRsvpAction(null);
     renderParticipantOptions();
     updatePlayerMemory();
+    updateAdminLockBar();
     tallyCount.textContent = "Choose a date";
     tallyList.replaceChildren();
     dateOptions.querySelectorAll(".date-option").forEach((button) => {
@@ -283,6 +292,93 @@
     // The lock flag arrives with the tally; unknown dates default to open, and
     // the server is the final authority on submit.
     return !playDate || dateLockCache.get(playDate) !== true;
+  }
+
+  function requestAdminLock(payload) {
+    return new Promise((resolve, reject) => {
+      const callbackName = `playRsvpLock_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      const script = document.createElement("script");
+      script.referrerPolicy = "no-referrer";
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("Apps Script took too long to respond"));
+      }, JSONP_TIMEOUT_MS);
+
+      function cleanup() {
+        window.clearTimeout(timeout);
+        script.remove();
+        delete window[callbackName];
+      }
+
+      window[callbackName] = (response) => {
+        cleanup();
+        if (response && response.ok) {
+          resolve(response);
+        } else {
+          reject(new Error(response?.error || "Lock update failed"));
+        }
+      };
+      script.onerror = () => {
+        cleanup();
+        reject(new Error("Could not reach Apps Script"));
+      };
+      const url = new URL(ADMIN_APPS_SCRIPT_URL);
+      url.searchParams.set("callback", callbackName);
+      Object.entries(payload).forEach(([key, value]) => {
+        url.searchParams.set(key, String(value));
+      });
+      script.src = url.toString();
+      document.body.append(script);
+    });
+  }
+
+  function updateAdminLockBar() {
+    if (!adminLockBar) {
+      return;
+    }
+    const playDate = dateInput.value;
+    const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(playDate || "");
+    if (!adminToken || !isValidDate) {
+      adminLockBar.hidden = true;
+      return;
+    }
+
+    adminLockBar.hidden = false;
+    const locked = dateLockCache.get(playDate) === true;
+    adminLockStatus.textContent = locked ? "🔒 Locked" : "🔓 Unlocked";
+    adminLockStatus.classList.toggle("is-locked", locked);
+    adminLockToggle.textContent = locked ? "Unlock this date" : "Lock this date";
+    adminLockToggle.classList.toggle("is-locked", locked);
+  }
+
+  async function toggleSelectedDateLock() {
+    const playDate = dateInput.value;
+    if (!adminToken || !/^\d{4}-\d{2}-\d{2}$/.test(playDate || "")) {
+      return;
+    }
+    const nextLocked = dateLockCache.get(playDate) !== true;
+    adminLockToggle.disabled = true;
+    adminLockToggle.textContent = nextLocked ? "Locking..." : "Unlocking...";
+    try {
+      const result = await requestAdminLock({
+        action: "setDateLock",
+        adminToken,
+        playDate,
+        locked: nextLocked ? "true" : "false",
+      });
+      dateLockCache.set(playDate, Boolean(result.locked));
+      renderParticipantOptions();
+      if (dateInput.value === playDate) {
+        loadTally(playDate);
+      }
+    } catch (error) {
+      setStatus(error.message, "error");
+    } finally {
+      adminLockToggle.disabled = false;
+      updateAdminLockBar();
+    }
   }
 
   function renderParticipantOptions() {
@@ -1156,6 +1252,7 @@
       renderTally(result.tally);
       if (dateInput.value === playDate) {
         renderParticipantOptions();
+        updateAdminLockBar();
       }
     } catch (error) {
       if (requestId !== latestTallyRequest || dateInput.value !== playDate) {
@@ -1215,6 +1312,16 @@
     restoreRosterContacts();
     restoreLastPlayer();
     renderDateOptions();
+
+    if (adminLockToggle) {
+      adminLockToggle.addEventListener("click", toggleSelectedDateLock);
+    }
+    if (window.RsvpAdminAuth) {
+      window.RsvpAdminAuth.onChange((state) => {
+        adminToken = state.isLoggedIn ? state.token : "";
+        updateAdminLockBar();
+      });
+    }
 
     participantInput.value = "1";
     updatePlayerMemory();

@@ -1336,6 +1336,65 @@ body:not(.billing-admin) .admin-payment-column {
   padding: 2px 7px;
 }
 
+.admin-lock-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 4px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid #c7d2e0;
+  border-radius: 12px;
+  background: #f2f6fb;
+}
+
+.admin-lock-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-lock-status {
+  font-weight: 800;
+  color: #3a4d63;
+}
+
+.admin-lock-status.is-locked {
+  color: #d81e5b;
+}
+
+.admin-lock-copy small {
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.admin-lock-toggle {
+  flex-shrink: 0;
+  border: 1px solid #1d4ed8;
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.admin-lock-toggle:hover {
+  background: #1a44bb;
+}
+
+.admin-lock-toggle.is-locked {
+  background: #d81e5b;
+  border-color: #d81e5b;
+}
+
+.admin-lock-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .date-lock-button {
   display: block;
   margin: 6px auto 0;

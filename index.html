@@ -35,7 +35,7 @@
       content="https://nhcuong95.github.io/rsvp/assets/social-preview.png?v=2"
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260911-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260911-2" />
   </head>
   <body>
     <main class="shell">
@@ -94,6 +94,16 @@
                 <input id="custom-play-date" type="date" />
               </label>
             </fieldset>
+
+            <div id="admin-lock-bar" class="admin-lock-bar" hidden>
+              <div class="admin-lock-copy">
+                <span id="admin-lock-status" class="admin-lock-status">Unlocked</span>
+                <small>Admin only · members can always add, locking only closes drop-outs.</small>
+              </div>
+              <button id="admin-lock-toggle" class="admin-lock-toggle" type="button">
+                Lock this date
+              </button>
+            </div>
 
             <label class="field">
               <span>Reserved spots</span>
@@ -157,6 +167,6 @@
 
     <script src="./admin-auth.js?v=20260811-1"></script>
     <script src="./rsvp-rules.js?v=20260626-1"></script>
-    <script src="./app.js?v=20260911-1"></script>
+    <script src="./app.js?v=20260911-2"></script>
   </body>
 </html>
