@@ -75,6 +75,7 @@
   const confirmOverride = document.querySelector("#confirm-override");
   let pendingOverridePayload = null;
   let latestTallyRequest = 0;
+  const dateLockCache = new Map();
   let rememberedPlayerName = "";
   let selectedPlayerName = "";
   let lastSubmittedPayload = null;
@@ -278,7 +279,10 @@
   }
 
   function canSelectNotGoing(playDate) {
-    return !playDate || !rsvpRules.isUnvoteLocked(playDate);
+    // A date is only closed to drop-outs when the admin has manually locked it.
+    // The lock flag arrives with the tally; unknown dates default to open, and
+    // the server is the final authority on submit.
+    return !playDate || dateLockCache.get(playDate) !== true;
   }
 
   function renderParticipantOptions() {
@@ -1104,10 +1108,11 @@
     const players = Array.isArray(tally?.players) ? tally.players : [];
     const totalCount = Number(tally?.totalCount || 0);
 
-    tallyCount.textContent =
+    const base =
       totalCount > 0
         ? formatParticipantCount(totalCount)
         : "No reservations yet";
+    tallyCount.textContent = tally?.locked ? `${base} · 🔒 Locked` : base;
 
     tallyList.replaceChildren(
       ...players.map((player) => {
@@ -1147,7 +1152,11 @@
         return;
       }
       tallySection?.removeAttribute("aria-busy");
+      dateLockCache.set(playDate, Boolean(result.tally?.locked));
       renderTally(result.tally);
+      if (dateInput.value === playDate) {
+        renderParticipantOptions();
+      }
     } catch (error) {
       if (requestId !== latestTallyRequest || dateInput.value !== playDate) {
         return;

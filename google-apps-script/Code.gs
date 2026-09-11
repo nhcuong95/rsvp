@@ -7,6 +7,8 @@ const BILLING_BIRDIE_PURCHASE_SHEET_NAME = "Billing Birdie Purchases";
 const BILLING_PAYMENT_SHEET_NAME = "Billing Payments";
 const BILLING_ADJUSTMENT_SHEET_NAME = "Billing Adjustments";
 const BILLING_MONTH_STATUS_SHEET_NAME = "Billing Month Status";
+const LOCKS_SHEET_NAME = "Roster Locks";
+const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const EXPORT_SPREADSHEET_ID = "1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ";
 const PREVIEW_MAX_ROWS = 120;
 const PREVIEW_MAX_COLUMNS = 80;
@@ -230,6 +232,26 @@ function doGet(event) {
         existing: result.existing || null,
         audit: result.audit || null,
         tally: result.tally,
+      });
+    }
+
+    if (params.action === "setDateLock") {
+      requireAdmin_(params);
+      const result = setDateLock_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "setDateLock",
+        playDate: result.playDate,
+        locked: result.locked,
+      });
+    }
+
+    if (params.action === "listDateLocks") {
+      requireAdmin_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "listDateLocks",
+        lockedDates: listDateLocks_(),
       });
     }
 
@@ -648,6 +670,106 @@ function getSheet_() {
   }
 
   return sheet;
+}
+
+function getLocksSheet_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(LOCKS_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(LOCKS_SHEET_NAME);
+  }
+
+  const headerRange = sheet.getRange(1, 1, 1, LOCKS_HEADERS.length);
+  const currentHeaders = headerRange.getValues()[0];
+  const needsHeaders = LOCKS_HEADERS.some(
+    (header, index) => currentHeaders[index] !== header,
+  );
+
+  if (needsHeaders) {
+    headerRange.setValues([LOCKS_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  sheet.getRange("A:A").setNumberFormat("@");
+
+  return sheet;
+}
+
+function getLockedDateSet_() {
+  const sheet = getLocksSheet_();
+  const lastRow = sheet.getLastRow();
+  const locked = {};
+  if (lastRow < 2) {
+    return locked;
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  rows.forEach((row) => {
+    const date = normalizeDate_(row[0]);
+    if (date && normalize_(row[1]) === "true") {
+      locked[date] = true;
+    }
+  });
+  return locked;
+}
+
+function isDateLocked_(playDate) {
+  const date = normalizeDate_(playDate);
+  if (!date) {
+    return false;
+  }
+  return Boolean(getLockedDateSet_()[date]);
+}
+
+function findLockRow_(sheet, playDate) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return 0;
+  }
+  const dates = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let index = 0; index < dates.length; index += 1) {
+    if (normalizeDate_(dates[index][0]) === playDate) {
+      return index + 2;
+    }
+  }
+  return 0;
+}
+
+function setDateLock_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const playDate = normalizeDate_(
+      required_(params.playDate, "Missing play date"),
+    );
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(playDate)) {
+      throw new Error("Enter a valid play date");
+    }
+    const locked = normalize_(params.locked) === "true";
+    const sheet = getLocksSheet_();
+    const row = findLockRow_(sheet, playDate);
+    const values = [
+      playDate,
+      locked ? "TRUE" : "FALSE",
+      new Date().toISOString(),
+      sanitizeText_(params.updatedBy || "admin"),
+    ];
+
+    if (row) {
+      sheet.getRange(row, 1, 1, LOCKS_HEADERS.length).setValues([values]);
+    } else {
+      sheet.appendRow(values);
+    }
+
+    return { playDate, locked };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function listDateLocks_() {
+  return Object.keys(getLockedDateSet_()).sort();
 }
 
 function getAuditSheet_() {
@@ -3021,6 +3143,7 @@ function getTally_(playDate) {
     (sum, player) => sum + player.participantCount,
     0,
   );
+  tally.locked = isDateLocked_(playDate);
 
   return tally;
 }
@@ -3048,24 +3171,9 @@ function isUnvoteBlocked_(params, playDate) {
 }
 
 function isUnvoteLocked_(playDate) {
-  const match = String(playDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return false;
-  }
-
-  const playStart = new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    PLAY_START_HOUR,
-    0,
-    0,
-    0,
-  );
-  const lockTime = new Date(
-    playStart.getTime() - UNVOTE_LOCK_HOURS_BEFORE_PLAY * 60 * 60 * 1000,
-  );
-  return new Date() >= lockTime;
+  // Manual locking only: a game date is locked when an admin locks it from the
+  // Admin page. The previous 6-hour automatic lock has been removed.
+  return isDateLocked_(playDate);
 }
 
 function formatDate_(date) {

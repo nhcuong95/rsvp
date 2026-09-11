@@ -1,13 +1,15 @@
 const SHEET_NAME = "RSVPs";
 const ROSTER_SHEET_NAME = "Roster";
 const AUDIT_SHEET_NAME = "RSVP Audit Log";
+const LOCKS_SHEET_NAME = "Roster Locks";
+const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const SPREADSHEET_ID_PROPERTY = "RSVP_SPREADSHEET_ID";
 const ROSTER_CACHE_KEY = "rsvp-public-roster-v1";
 const ROSTER_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const PLAY_START_HOUR = 6;
 const UNVOTE_LOCK_HOURS_BEFORE_PLAY = 6;
 const UNVOTE_LOCK_MESSAGE =
-  "RSVP removals close at 12AM before the play date. No-shows may still be charged court fees.";
+  "This game is locked. Drop-outs are closed — message the admin if you can't make it. No-shows may still be charged field fees.";
 
 const HEADERS = [
   "Play Date",
@@ -358,6 +360,55 @@ function getSpreadsheet_() {
   return SpreadsheetApp.openById(spreadsheetId);
 }
 
+function getLocksSheet_() {
+  const spreadsheet = getSpreadsheet_();
+  let sheet = spreadsheet.getSheetByName(LOCKS_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(LOCKS_SHEET_NAME);
+  }
+
+  const headerRange = sheet.getRange(1, 1, 1, LOCKS_HEADERS.length);
+  const currentHeaders = headerRange.getValues()[0];
+  const needsHeaders = LOCKS_HEADERS.some(
+    (header, index) => currentHeaders[index] !== header,
+  );
+
+  if (needsHeaders) {
+    headerRange.setValues([LOCKS_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  sheet.getRange("A:A").setNumberFormat("@");
+
+  return sheet;
+}
+
+function getLockedDateSet_() {
+  const sheet = getLocksSheet_();
+  const lastRow = sheet.getLastRow();
+  const locked = {};
+  if (lastRow < 2) {
+    return locked;
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  rows.forEach((row) => {
+    const date = normalizeDate_(row[0]);
+    if (date && normalize_(row[1]) === "true") {
+      locked[date] = true;
+    }
+  });
+  return locked;
+}
+
+function isDateLocked_(playDate) {
+  const date = normalizeDate_(playDate);
+  if (!date) {
+    return false;
+  }
+  return Boolean(getLockedDateSet_()[date]);
+}
+
 function appendAuditLog_(params, action, row, existingRsvp) {
   try {
     const sheet = getAuditSheet_();
@@ -567,7 +618,13 @@ function getRsvpAtRow_(sheet, row) {
 function getTally_(playDate) {
   const sheet = getSheet_();
   const rosterNameSet = getRosterNameSet_();
-  return buildTallyFromSnapshot_(readRsvpRows_(sheet), playDate, rosterNameSet);
+  const tally = buildTallyFromSnapshot_(
+    readRsvpRows_(sheet),
+    playDate,
+    rosterNameSet,
+  );
+  tally.locked = isDateLocked_(playDate);
+  return tally;
 }
 
 function buildTallyFromSnapshot_(snapshot, playDate, rosterNameSet) {
@@ -630,24 +687,10 @@ function clampStoredParticipantCount_(value) {
 }
 
 function isUnvoteLocked_(playDate) {
-  const match = String(playDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return false;
-  }
-
-  const playStart = new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    PLAY_START_HOUR,
-    0,
-    0,
-    0,
-  );
-  const lockTime = new Date(
-    playStart.getTime() - UNVOTE_LOCK_HOURS_BEFORE_PLAY * 60 * 60 * 1000,
-  );
-  return new Date() >= lockTime;
+  // Locking is now manual: a game date is locked only when an admin locks it
+  // from the Admin page (stored in the "Roster Locks" sheet). The old 6-hour
+  // automatic lock has been removed.
+  return isDateLocked_(playDate);
 }
 
 function isRosterPlayer_(playerName, rosterNameSet) {

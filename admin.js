@@ -60,6 +60,7 @@
   const changeHistoryTable = document.querySelector("#change-history-table");
   let monthDates = [];
   let rosterValues = new Map();
+  let lockedDates = new Set();
   const changedValues = new Map();
   let latestLoadRequest = 0;
   let latestAuditRequest = 0;
@@ -654,6 +655,63 @@
     }
   }
 
+  function applyLockButtonState(button, date) {
+    const locked = lockedDates.has(date);
+    button.textContent = locked ? "🔒 Locked" : "🔓 Unlocked";
+    button.classList.toggle("date-lock-on", locked);
+    button.setAttribute("aria-pressed", String(locked));
+    button.title = locked
+      ? "Members can still add themselves but cannot drop out. Click to unlock."
+      : "Open — members can add or drop out. Click to lock after you book the field.";
+  }
+
+  function buildLockButton(date) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "date-lock-button";
+    button.dataset.date = date;
+    applyLockButtonState(button, date);
+    button.addEventListener("click", () => toggleDateLock(date, button));
+    return button;
+  }
+
+  async function toggleDateLock(date, button) {
+    if (!adminToken) {
+      setStatus("Log in as admin to lock game dates.", "error");
+      return;
+    }
+    const nextLocked = !lockedDates.has(date);
+    button.disabled = true;
+    setStatus(
+      `${nextLocked ? "Locking" : "Unlocking"} ${formatDisplayDate(date)}...`,
+      "loading",
+    );
+    try {
+      const result = await requestAppsScript({
+        action: "setDateLock",
+        adminToken,
+        playDate: date,
+        locked: nextLocked ? "true" : "false",
+      });
+      if (result.locked) {
+        lockedDates.add(date);
+      } else {
+        lockedDates.delete(date);
+      }
+      applyLockButtonState(button, date);
+      setStatus(
+        `${formatDisplayDate(date)} is now ${
+          result.locked ? "locked — drop-outs closed" : "unlocked"
+        }.`,
+        "success",
+      );
+    } catch (error) {
+      setStatus(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function renderRosterTable() {
     const visiblePlayers = getVisiblePlayers();
     const thead = document.createElement("thead");
@@ -673,7 +731,7 @@
       totalLabel.className = "date-total";
       totalLabel.dataset.date = date;
       totalLabel.textContent = `Total: ${getDateTotal(date)}`;
-      header.append(dateLabel, totalLabel);
+      header.append(dateLabel, totalLabel, buildLockButton(date));
       headerRow.append(header);
     });
     thead.append(headerRow);
@@ -743,6 +801,7 @@
     monthDates = getPlayDatesForMonth(month);
     renderAuditDateFilter();
     rosterValues = new Map();
+    lockedDates = new Set();
     changedValues.clear();
     rosterTable.textContent = "";
     setStatus("Loading month...", "loading");
@@ -774,6 +833,11 @@
             parseParticipantCount(player.participantCount),
           );
         });
+        if (result.tally?.locked) {
+          lockedDates.add(playDate);
+        } else {
+          lockedDates.delete(playDate);
+        }
       }
 
       renderRosterTable();

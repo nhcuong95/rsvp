@@ -1336,6 +1336,35 @@ body:not(.billing-admin) .admin-payment-column {
   padding: 2px 7px;
 }
 
+.date-lock-button {
+  display: block;
+  margin: 6px auto 0;
+  border: 1px solid #c7d2e0;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #3a4d63;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.date-lock-button:hover {
+  border-color: #9fb2c6;
+}
+
+.date-lock-button.date-lock-on {
+  background: #d81e5b;
+  border-color: #d81e5b;
+  color: #fff;
+}
+
+.date-lock-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .roster-edit-select {
   min-height: 34px;
   border-radius: 6px;
