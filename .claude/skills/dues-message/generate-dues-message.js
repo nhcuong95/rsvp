@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generate a paste-ready "unpaid dues" message for the badminton group chat.
+ * Generate a paste-ready "unpaid dues" message for the soccer group chat.
  *
  * Reads a finalized monthly billing CSV (the same files the billing page uses,
  * e.g. data/04_2026.csv) and lists every member whose MEMBER PAY balance is
@@ -151,7 +151,7 @@ function buildDuesMessage(members, meta, options) {
   );
 
   const message = [
-    `🏸 Badminton dues — ${formatMonthLabel(meta.year, meta.month)}`,
+    `⚽ Soccer dues — ${formatMonthLabel(meta.year, meta.month)}`,
     "",
     `Please pay ${options.recipient} — Venmo @${options.venmo}${
       options.zelle ? ` or Zelle ${options.zelle}` : ""

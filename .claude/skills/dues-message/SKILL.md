@@ -1,6 +1,6 @@
 ---
 name: dues-message
-description: Write a paste-ready badminton dues message that lists the unpaid people (and what each owes) for a given month, to post in the Facebook Messenger group chat. Use when asked to draft/generate the monthly dues, remind who hasn't paid, or make a "who owes" message from a billing CSV.
+description: Write a paste-ready soccer dues message that lists the unpaid people (and what each owes) for a given month, to post in the Facebook Messenger group chat. Use when asked to draft/generate the monthly dues, remind who hasn't paid, or make a "who owes" message from a billing CSV.
 ---
 
 # Dues message for the group chat
