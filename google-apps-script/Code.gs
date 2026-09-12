@@ -1684,6 +1684,12 @@ function getBillingMonths_(includeEditable) {
       currentMonth,
       false,
     );
+  } else {
+    // Members can view/pay any finalized month, even one with no extras usage.
+    getFinalizedBillingMonths_(currentMonth).forEach((month) => {
+      monthSet[month] = true;
+      billableMonthSet[month] = true;
+    });
   }
 
   return Object.keys(monthSet)
@@ -2511,6 +2517,29 @@ function getBillingAdjustments_(month) {
     });
 
   return adjustments;
+}
+
+function getFinalizedBillingMonths_(currentMonth) {
+  const sheet = getBillingMonthStatusSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+
+  return sheet
+    .getRange(2, 1, lastRow - 1, BILLING_MONTH_STATUS_HEADERS.length)
+    .getValues()
+    .reduce((months, row) => {
+      const month = normalizeMonth_(row[0]);
+      if (
+        month &&
+        month <= currentMonth &&
+        normalizeBillingMonthStatus_(row[1] || "draft") === "finalized"
+      ) {
+        months.push(month);
+      }
+      return months;
+    }, []);
 }
 
 function getBillingMonthStatus_(month) {
