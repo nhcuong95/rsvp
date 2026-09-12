@@ -2282,9 +2282,25 @@
       (sum, member) => sum + roundMoney(member.netBalance),
       0,
     );
-    const lines = unpaid.map(
-      (member) => `• ${member.name} — ${formatMoney(member.netBalance)}`,
-    );
+    const monthDay = (value) => String(value || "").slice(5).replace("-", "/");
+    const lines = unpaid.map((member) => {
+      const perWeightedSpot =
+        member.weightedSpots > 0 ? member.birdieFee / member.weightedSpots : 0;
+      const played = member.attendance
+        .slice()
+        .sort((first, second) => first.date.localeCompare(second.date))
+        .map((entry) => {
+          const fee = entry.courtFee + entry.spots * entry.weight * perWeightedSpot;
+          return `${monthDay(entry.date)} (${formatMoney(fee)})`;
+        })
+        .join(", ");
+      const gross = roundMoney(member.courtFee + member.birdieFee);
+      const paid = roundMoney(gross - member.netBalance);
+      const playedText = played ? `play ${played}; ` : "";
+      return `• ${member.name} — ${playedText}paid ${formatMoney(
+        paid,
+      )}, missing ${formatMoney(member.netBalance)} of ${formatMoney(gross)}`;
+    });
 
     return [
       `⚽ Soccer dues — ${formatMonthLabel(monthInput.value)}`,
