@@ -1393,6 +1393,12 @@ body.is-admin .non-admin-only {
   font-size: 0.72rem;
 }
 
+.admin-lock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .admin-lock-toggle {
   flex-shrink: 0;
   border: 1px solid #1d4ed8;
@@ -1403,6 +1409,11 @@ body.is-admin .non-admin-only {
   font-size: 0.85rem;
   padding: 8px 16px;
   cursor: pointer;
+}
+
+.admin-lock-toggle.is-listed {
+  background: #64748b;
+  border-color: #64748b;
 }
 
 .admin-lock-toggle:hover {

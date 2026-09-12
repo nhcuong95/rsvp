@@ -74,6 +74,7 @@
   const adminLockBar = document.querySelector("#admin-lock-bar");
   const adminLockStatus = document.querySelector("#admin-lock-status");
   const adminLockToggle = document.querySelector("#admin-lock-toggle");
+  const adminDateToggle = document.querySelector("#admin-date-toggle");
   let adminToken = "";
   const overrideDialog = document.querySelector("#override-dialog");
   const previousRsvp = document.querySelector("#previous-rsvp");
@@ -83,6 +84,7 @@
   let pendingOverridePayload = null;
   let latestTallyRequest = 0;
   const dateLockCache = new Map();
+  let openDates = [];
   let rememberedPlayerName = "";
   let selectedPlayerName = "";
   let lastSubmittedPayload = null;
@@ -231,14 +233,24 @@
     customDateInput?.showPicker?.();
   }
 
+  function pickDefaultOpenDate() {
+    if (!openDates.length) {
+      return "";
+    }
+    const today = formatDate(new Date());
+    const upcoming = openDates.find((value) => value >= today);
+    return upcoming || openDates[openDates.length - 1];
+  }
+
   function renderDateOptions() {
-    const dates = getUpcomingPlayDates(4);
     if (customDateInput) {
       customDateInput.min = rsvpRules.getStartOfMonthValue();
     }
+    // Dates shown are the ones an admin has opened for RSVP (fetched into
+    // openDates), not an auto-generated Tue/Thu/Sat list.
     dateOptions.replaceChildren(
-      ...dates.map((date) => {
-        const value = formatDate(date);
+      ...openDates.map((value) => {
+        const date = new Date(`${value}T00:00:00`);
         const label = formatDateOption(date);
         const button = document.createElement("button");
         const day = document.createElement("span");
@@ -278,13 +290,30 @@
     });
     dateOptions.append(otherButton);
 
-    customDateInput?.addEventListener("change", () => {
-      if (customDateInput.value) {
-        selectPlayDate(customDateInput.value, { isCustom: true });
+    // Keep the current selection if it is still a valid open date; otherwise
+    // fall back to the default open date (leaving nothing selected if the admin
+    // has not opened any dates yet — members can still use "Other date").
+    const current = dateInput.value;
+    if (current && (openDates.includes(current) || current === customDateInput?.value)) {
+      selectPlayDate(current, { isCustom: current === customDateInput?.value });
+    } else {
+      const def = pickDefaultOpenDate();
+      if (def) {
+        selectPlayDate(def);
       }
-    });
+    }
+  }
 
-    selectPlayDate(formatDate(getNextPlayDate()));
+  async function loadPlayDates() {
+    try {
+      const result = await requestAppsScript({ action: "listPlayDates" });
+      openDates = Array.isArray(result.dates)
+        ? result.dates.filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)).sort()
+        : [];
+    } catch (error) {
+      openDates = [];
+    }
+    renderDateOptions();
   }
 
   function canSelectNotGoing(playDate) {
@@ -351,6 +380,41 @@
     adminLockStatus.classList.toggle("is-locked", locked);
     adminLockToggle.textContent = locked ? "Unlock this date" : "Lock this date";
     adminLockToggle.classList.toggle("is-locked", locked);
+
+    if (adminDateToggle) {
+      const listed = openDates.includes(playDate);
+      adminDateToggle.textContent = listed
+        ? "Remove from RSVP list"
+        : "Add to RSVP list";
+      adminDateToggle.classList.toggle("is-listed", listed);
+    }
+  }
+
+  async function toggleSelectedDateInList() {
+    const playDate = dateInput.value;
+    if (!adminToken || !/^\d{4}-\d{2}-\d{2}$/.test(playDate || "")) {
+      return;
+    }
+    const nextListed = !openDates.includes(playDate);
+    adminDateToggle.disabled = true;
+    adminDateToggle.textContent = nextListed ? "Adding..." : "Removing...";
+    try {
+      const result = await requestAdminLock({
+        action: "setPlayDate",
+        adminToken,
+        playDate,
+        open: nextListed ? "true" : "false",
+      });
+      openDates = Array.isArray(result.dates)
+        ? result.dates.filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v)).sort()
+        : openDates;
+      renderDateOptions();
+    } catch (error) {
+      setStatus(error.message, "error");
+    } finally {
+      adminDateToggle.disabled = false;
+      updateAdminLockBar();
+    }
   }
 
   async function toggleSelectedDateLock() {
@@ -1311,10 +1375,22 @@
   function initialize() {
     restoreRosterContacts();
     restoreLastPlayer();
+    if (customDateInput) {
+      customDateInput.min = rsvpRules.getStartOfMonthValue();
+      customDateInput.addEventListener("change", () => {
+        if (customDateInput.value) {
+          selectPlayDate(customDateInput.value, { isCustom: true });
+        }
+      });
+    }
     renderDateOptions();
+    loadPlayDates();
 
     if (adminLockToggle) {
       adminLockToggle.addEventListener("click", toggleSelectedDateLock);
+    }
+    if (adminDateToggle) {
+      adminDateToggle.addEventListener("click", toggleSelectedDateInList);
     }
     if (window.RsvpAdminAuth) {
       window.RsvpAdminAuth.onChange((state) => {

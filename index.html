@@ -35,7 +35,7 @@
       content="https://nhcuong95.github.io/rsvp/assets/social-preview.png?v=2"
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260911-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260912-1" />
   </head>
   <body>
     <main class="shell">
@@ -98,11 +98,16 @@
             <div id="admin-lock-bar" class="admin-lock-bar" hidden>
               <div class="admin-lock-copy">
                 <span id="admin-lock-status" class="admin-lock-status">Unlocked</span>
-                <small>Admin only · members can always add, locking only closes drop-outs.</small>
+                <small>Admin only · pick a date (incl. "Other date"), add it to the RSVP list, then lock it after you book.</small>
               </div>
-              <button id="admin-lock-toggle" class="admin-lock-toggle" type="button">
-                Lock this date
-              </button>
+              <div class="admin-lock-actions">
+                <button id="admin-date-toggle" class="admin-lock-toggle" type="button">
+                  Add to RSVP list
+                </button>
+                <button id="admin-lock-toggle" class="admin-lock-toggle" type="button">
+                  Lock this date
+                </button>
+              </div>
             </div>
 
             <label class="field">
@@ -167,6 +172,6 @@
 
     <script src="./admin-auth.js?v=20260911-3"></script>
     <script src="./rsvp-rules.js?v=20260626-1"></script>
-    <script src="./app.js?v=20260911-2"></script>
+    <script src="./app.js?v=20260912-1"></script>
   </body>
 </html>

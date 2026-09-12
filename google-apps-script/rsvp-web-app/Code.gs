@@ -3,6 +3,8 @@ const ROSTER_SHEET_NAME = "Roster";
 const AUDIT_SHEET_NAME = "RSVP Audit Log";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
+const OPEN_DATES_SHEET_NAME = "RSVP Dates";
+const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By"];
 const SPREADSHEET_ID_PROPERTY = "RSVP_SPREADSHEET_ID";
 const ROSTER_CACHE_KEY = "rsvp-public-roster-v1";
 const ROSTER_CACHE_TTL_SECONDS = 6 * 60 * 60;
@@ -62,6 +64,13 @@ function doGet(event) {
         ok: true,
         action: "refreshRosterCache",
         roster: refreshRosterCache_(),
+      });
+    }
+
+    if (params.action === "listPlayDates") {
+      return jsonp_(callback, {
+        ok: true,
+        dates: getOpenDates_(),
       });
     }
 
@@ -407,6 +416,42 @@ function isDateLocked_(playDate) {
     return false;
   }
   return Boolean(getLockedDateSet_()[date]);
+}
+
+function getOpenDatesSheet_() {
+  const spreadsheet = getSpreadsheet_();
+  let sheet = spreadsheet.getSheetByName(OPEN_DATES_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(OPEN_DATES_SHEET_NAME);
+  }
+  const headerRange = sheet.getRange(1, 1, 1, OPEN_DATES_HEADERS.length);
+  const currentHeaders = headerRange.getValues()[0];
+  const needsHeaders = OPEN_DATES_HEADERS.some(
+    (header, index) => currentHeaders[index] !== header,
+  );
+  if (needsHeaders) {
+    headerRange.setValues([OPEN_DATES_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  sheet.getRange("A:A").setNumberFormat("@");
+  return sheet;
+}
+
+function getOpenDates_() {
+  const sheet = getOpenDatesSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+  const rows = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const seen = {};
+  rows.forEach((row) => {
+    const date = normalizeDate_(row[0]);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      seen[date] = true;
+    }
+  });
+  return Object.keys(seen).sort();
 }
 
 function appendAuditLog_(params, action, row, existingRsvp) {

@@ -9,6 +9,8 @@ const BILLING_ADJUSTMENT_SHEET_NAME = "Billing Adjustments";
 const BILLING_MONTH_STATUS_SHEET_NAME = "Billing Month Status";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
+const OPEN_DATES_SHEET_NAME = "RSVP Dates";
+const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By"];
 const EXPORT_SPREADSHEET_ID = "1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ";
 const PREVIEW_MAX_ROWS = 120;
 const PREVIEW_MAX_COLUMNS = 80;
@@ -252,6 +254,26 @@ function doGet(event) {
         ok: true,
         action: "listDateLocks",
         lockedDates: listDateLocks_(),
+      });
+    }
+
+    if (params.action === "listPlayDates") {
+      return jsonp_(callback, {
+        ok: true,
+        action: "listPlayDates",
+        dates: getOpenDates_(),
+      });
+    }
+
+    if (params.action === "setPlayDate") {
+      requireAdmin_(params);
+      const result = setOpenDate_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "setPlayDate",
+        playDate: result.playDate,
+        open: result.open,
+        dates: result.dates,
       });
     }
 
@@ -770,6 +792,84 @@ function setDateLock_(params) {
 
 function listDateLocks_() {
   return Object.keys(getLockedDateSet_()).sort();
+}
+
+function getOpenDatesSheet_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(OPEN_DATES_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(OPEN_DATES_SHEET_NAME);
+  }
+  const headerRange = sheet.getRange(1, 1, 1, OPEN_DATES_HEADERS.length);
+  const currentHeaders = headerRange.getValues()[0];
+  const needsHeaders = OPEN_DATES_HEADERS.some(
+    (header, index) => currentHeaders[index] !== header,
+  );
+  if (needsHeaders) {
+    headerRange.setValues([OPEN_DATES_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  sheet.getRange("A:A").setNumberFormat("@");
+  return sheet;
+}
+
+function getOpenDates_() {
+  const sheet = getOpenDatesSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+  const rows = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const seen = {};
+  rows.forEach((row) => {
+    const date = normalizeDate_(row[0]);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      seen[date] = true;
+    }
+  });
+  return Object.keys(seen).sort();
+}
+
+function findOpenDateRow_(sheet, playDate) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return 0;
+  }
+  const dates = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let index = 0; index < dates.length; index += 1) {
+    if (normalizeDate_(dates[index][0]) === playDate) {
+      return index + 2;
+    }
+  }
+  return 0;
+}
+
+function setOpenDate_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const playDate = normalizeDate_(
+      required_(params.playDate, "Missing play date"),
+    );
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(playDate)) {
+      throw new Error("Enter a valid play date");
+    }
+    const add = normalize_(params.open) === "true";
+    const sheet = getOpenDatesSheet_();
+    const row = findOpenDateRow_(sheet, playDate);
+    if (add && !row) {
+      sheet.appendRow([
+        playDate,
+        new Date().toISOString(),
+        sanitizeText_(params.updatedBy || "admin"),
+      ]);
+    } else if (!add && row) {
+      sheet.deleteRow(row);
+    }
+    return { playDate, open: add, dates: getOpenDates_() };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getAuditSheet_() {
