@@ -1258,11 +1258,18 @@
       isFinalized ? "finalized" : "draft"
     }`;
     finalizationTitle.textContent = isFinalized ? "Bills are finalized" : "Bills are not finalized";
-    finalizationNote.textContent = isFinalized
-      ? monthStatus.updatedBy
+    if (isFinalized) {
+      const finalizedBy = monthStatus.updatedBy
         ? `Finalized by ${monthStatus.updatedBy}.`
-        : "Ready for payments."
-      : "Amounts may still change.";
+        : "Ready for payments.";
+      finalizationNote.textContent = isAdmin
+        ? finalizedBy
+        : `${finalizedBy} Your balance is final — please pay the amount shown.`;
+    } else {
+      finalizationNote.textContent = isAdmin
+        ? "Amounts may still change."
+        : "Amounts aren’t final yet — please wait to pay until bills are finalized.";
+    }
     finalizationSelect.value = isFinalized ? "finalized" : "draft";
   }
 
