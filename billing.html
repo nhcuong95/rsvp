@@ -17,7 +17,7 @@
             <p class="eyebrow">Monthly billing</p>
             <h1 id="page-title">Billing</h1>
           </div>
-          <div class="billing-toolbar">
+          <div class="billing-toolbar admin-only">
             <label class="field compact-field">
               <span>Month</span>
               <select id="billing-month" name="month" required>
@@ -38,15 +38,20 @@
             <a href="./index.html">RSVP</a>
             <a class="admin-only" href="./roster.html">Members</a>
             <a href="./export.html">Report</a>
-            <a class="active" href="./billing.html" aria-current="page">Billing</a>
+            <a class="admin-only active" href="./billing.html" aria-current="page">Billing</a>
             <a href="./admin.html">Admin</a>
           </div>
         </nav>
 
-        <p id="billing-status" class="status" role="status" aria-live="polite"></p>
+        <p class="non-admin-only member-gate" role="status">
+          Billing is admin-only. Log in on the
+          <a href="./admin.html">Admin</a> tab to view billing.
+        </p>
+
+        <p id="billing-status" class="status admin-only" role="status" aria-live="polite"></p>
         <div
           id="billing-progress"
-          class="report-progress billing-progress"
+          class="report-progress billing-progress admin-only"
           role="status"
           aria-live="polite"
           hidden
@@ -57,7 +62,7 @@
           <p id="billing-progress-text">Loading billing...</p>
         </div>
 
-        <div id="billing-content" class="billing-content" hidden>
+        <div id="billing-content" class="billing-content admin-only" hidden>
           <section
             id="billing-finalization-panel"
             class="billing-finalization-panel draft"
@@ -252,6 +257,6 @@
 
     <script src="./admin-auth.js?v=20260911-3"></script>
     <script src="./billing-parser.js?v=20260627-5"></script>
-    <script src="./billing.js?v=20260912-2"></script>
+    <script src="./billing.js?v=20260912-4"></script>
   </body>
 </html>

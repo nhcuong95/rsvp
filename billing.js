@@ -105,6 +105,7 @@
 
   let attendanceRows = [];
   let billing = null;
+  let billingLoaded = false;
   let billingMonths = [];
   let progressTimer = 0;
   let progressPercent = 0;
@@ -787,84 +788,6 @@
     return "Other rate";
   }
 
-  function normalizeClockValue(value) {
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return `${String(value.getHours()).padStart(2, "0")}:${String(
-        value.getMinutes(),
-      ).padStart(2, "0")}`;
-    }
-
-    const text = String(value || "").trim();
-    const clockMatch = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-    if (clockMatch) {
-      return `${String(clockMatch[1]).padStart(2, "0")}:${clockMatch[2]}`;
-    }
-
-    const parsed = new Date(text);
-    if (!Number.isNaN(parsed.getTime()) && /\d{1,2}:\d{2}:\d{2}/.test(text)) {
-      return `${String(parsed.getHours()).padStart(2, "0")}:${String(
-        parsed.getMinutes(),
-      ).padStart(2, "0")}`;
-    }
-
-    return text;
-  }
-
-  function getEndTime(startTime, durationHours) {
-    const match = normalizeClockValue(startTime).match(/^(\d{2}):(\d{2})$/);
-    if (!match) {
-      return "";
-    }
-    const date = new Date(2000, 0, 1, Number(match[1]), Number(match[2]), 0, 0);
-    date.setMinutes(date.getMinutes() + Math.round(Number(durationHours || 0) * 60));
-    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  }
-
-  function formatClock(value) {
-    const normalized = normalizeClockValue(value);
-    const match = normalized.match(/^(\d{2}):(\d{2})$/);
-    if (!match) {
-      return normalized || "";
-    }
-    const hour = Number(match[1]);
-    const minute = match[2];
-    const suffix = hour >= 12 ? "PM" : "AM";
-    const displayHour = hour % 12 || 12;
-    return minute === "00" ? `${displayHour}${suffix}` : `${displayHour}:${minute}${suffix}`;
-  }
-
-  function getClockParts(value) {
-    const label = formatClock(value);
-    const match = label.match(/^(.*?)(AM|PM)$/);
-    return match
-      ? {
-          time: match[1],
-          suffix: match[2],
-        }
-      : {
-          time: label,
-          suffix: "",
-        };
-  }
-
-  function formatTimeRange(startTime, durationHours) {
-    const start = getClockParts(startTime);
-    const end = getClockParts(getEndTime(startTime, durationHours));
-
-    if (start.suffix && start.suffix === end.suffix) {
-      return `${start.time}-${end.time}${end.suffix}`;
-    }
-
-    return `${start.time}${start.suffix}-${end.time}${end.suffix}`;
-  }
-
-  function formatCourtBlock(block) {
-    if (block.startTime) {
-      return formatTimeRange(block.startTime, block.durationHours);
-    }
-    return block.block || "";
-  }
-
   function makeId(prefix) {
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
@@ -1416,11 +1339,6 @@
     const activeCourtBlocks = billing.courtBlocks.filter(
       (block) => block.status === "active",
     );
-    const totalCourtHours = activeCourtBlocks.reduce(
-      (sum, block) =>
-        sum + Number(block.durationHours || 0) * Number(block.courts || 0),
-      0,
-    );
     const totalCost = activeCourtBlocks.reduce(
       (sum, block) => sum + Number(block.amount || 0),
       0,
@@ -1428,12 +1346,8 @@
 
     renderTable(
       courtBlockTable,
-      ["Date", "Block", "Courts", "Paid By", "Amount", "Source", "Status", "Actions"],
+      ["Date", "Paid By", "Amount", "Actions"],
       billing.courtBlocks.map((block) => {
-        const statusCell = makeBadge(
-          block.status === "active" ? "Active" : "Canceled",
-          block.status === "active" ? "paid" : "review",
-        );
         const actions = document.createElement("td");
         const toggle = document.createElement("button");
         toggle.className = `inline-action ${block.status === "active" ? "remove" : ""}`;
@@ -1466,25 +1380,12 @@
 
         return [
           { text: formatDisplayDate(block.date), className: "name-cell" },
-          { text: formatCourtBlock(block) },
-          { text: String(block.courts), className: "numeric-cell" },
           { text: block.paidBy },
           { text: formatMoney(block.amount), className: "numeric-cell" },
-          { text: block.source },
-          statusCell,
           actions,
         ];
       }),
-      [
-        "Total",
-        `${formatNumber(totalCourtHours, 1)} court-hours`,
-        "",
-        "",
-        formatMoney(totalCost),
-        "",
-        "",
-        "",
-      ],
+      ["Total", "", formatMoney(totalCost), ""],
     );
   }
 
@@ -2465,27 +2366,26 @@
       document.querySelectorAll(".admin-only").forEach((element) => {
         element.hidden = !isAdmin;
       });
-      if (billing) {
-        setStatus(
-          isAdmin
-            ? "Admin billing tools enabled on this browser."
-            : "Member view. Field and extras editing is hidden.",
-          isAdmin ? "success" : "",
-        );
-        if (wasAdmin !== isAdmin) {
-          loadBillingMonthOptions().then((hasMonths) => {
-            if (!hasMonths) {
-              return;
-            }
-            initializeInputs();
-            loadBillingMonth("Billing data loaded.");
-          });
+      // Billing is admin-only: only load it for admins, and clear it on logout.
+      if (wasAdmin !== isAdmin) {
+        if (isAdmin && !billingLoaded) {
+          billingLoaded = true;
+          initializeBillingPage();
+        } else if (!isAdmin) {
+          billingLoaded = false;
+          billing = null;
+          if (billingContent) {
+            billingContent.hidden = true;
+          }
         }
       }
     });
 
     adminAuth.ready.then(() => {
-      initializeBillingPage();
+      if (isAdmin && !billingLoaded) {
+        billingLoaded = true;
+        initializeBillingPage();
+      }
     });
   }
 
