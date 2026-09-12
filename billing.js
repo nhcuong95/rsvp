@@ -556,13 +556,13 @@
   }
 
   function getFallbackBillingMonths(includeCurrent) {
-    // Generate months from the group's start (Sep 2026) through the current
+    // Generate months from the group's start (Aug 2026) through the current
     // month so the list never goes stale as time passes.
     const current = getCurrentMonthValue();
     const [endYear, endMonth] = current.split("-").map(Number);
     const months = [];
     let year = 2026;
-    let month = 9; // September 2026 = start of the soccer group
+    let month = 8; // August 2026 = start of the soccer group
     while (year < endYear || (year === endYear && month <= endMonth)) {
       const value = `${year}-${String(month).padStart(2, "0")}`;
       const keep = includeCurrent ? value <= current : value < current;

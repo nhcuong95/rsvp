@@ -665,12 +665,12 @@
     scheduleReportLoad("export");
   });
 
-  // Populate months from the group's start (Sep 2026) through the current
+  // Populate months from the group's start (Aug 2026) through the current
   // month, newest first, so the dropdown never goes stale.
   (function populateMonthOptions() {
     const now = new Date();
     let year = 2026;
-    let month = 9; // September 2026 = start of the soccer group
+    let month = 8; // August 2026 = start of the soccer group
     const endYear = now.getFullYear();
     const endMonth = now.getMonth() + 1;
     const values = [];
@@ -683,7 +683,7 @@
       }
     }
     if (!values.length) {
-      values.push("2026-09");
+      values.push("2026-08");
     }
     values.reverse();
     monthInput.replaceChildren(
