@@ -455,6 +455,9 @@ function getOpenDatesSheet_() {
     sheet.setFrozenRows(1);
   }
   sheet.getRange("A:A").setNumberFormat("@");
+  // Keep Start Time / End Time as plain text so Sheets never reparses a picked
+  // time like "8:00 PM" into a datetime value.
+  sheet.getRange("F:G").setNumberFormat("@");
   return sheet;
 }
 
@@ -494,14 +497,24 @@ function getOpenDatesDetailed_() {
         date,
         fieldName: sanitizeText_(row[3] || ""),
         address: sanitizeText_(row[4] || ""),
-        startTime: sanitizeText_(row[5] || ""),
-        endTime: sanitizeText_(row[6] || ""),
+        startTime: formatTimeCellValue_(row[5]),
+        endTime: formatTimeCellValue_(row[6]),
       };
     }
   });
   return Object.keys(byDate)
     .sort()
     .map((date) => byDate[date]);
+}
+
+// Sheets can store a picked time ("8:00 PM") as a datetime value, which reads
+// back as a Date. Format such values as "h:mm a" to match the dropdown options;
+// otherwise return the stored text as-is.
+function formatTimeCellValue_(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value)) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "h:mm a");
+  }
+  return sanitizeText_(value == null ? "" : value);
 }
 
 function appendAuditLog_(params, action, row, existingRsvp) {

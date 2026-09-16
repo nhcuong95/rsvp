@@ -319,17 +319,25 @@
     }
   }
 
-  async function loadPlayDates() {
+  async function loadPlayDates(attempt) {
     try {
       const result = await requestAppsScript({ action: "listPlayDates" });
       openDates = Array.isArray(result.dates)
         ? result.dates.filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)).sort()
         : [];
       setDateDetails(result.dateDetails);
+      renderDateOptions();
     } catch (error) {
+      // The first request often times out while the Apps Script backend cold
+      // starts; retry a couple of times so dates (and the field/time info) show
+      // up for everyone, not just whoever already warmed the backend.
+      if ((attempt || 0) < 2) {
+        window.setTimeout(() => loadPlayDates((attempt || 0) + 1), 1500);
+        return;
+      }
       openDates = [];
+      renderDateOptions();
     }
-    renderDateOptions();
   }
 
   // Replace the cached field details for every date from a backend
@@ -363,10 +371,10 @@
     );
   }
 
-  // "8:00 PM – 10:00 PM", or just one side when only one is set.
+  // "8:00 PM - 10:00 PM", or just one side when only one is set.
   function formatTimeRange(startTime, endTime) {
     if (startTime && endTime) {
-      return `${startTime} – ${endTime}`;
+      return `${startTime} - ${endTime}`;
     }
     return startTime || endTime || "";
   }
