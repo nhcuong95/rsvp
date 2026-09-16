@@ -19,7 +19,7 @@ const ROSTER_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const PLAY_START_HOUR = 6;
 const UNVOTE_LOCK_HOURS_BEFORE_PLAY = 6;
 const UNVOTE_LOCK_MESSAGE =
-  "This game is locked. Drop-outs are closed — message the admin if you can't make it. No-shows may still be charged field fees.";
+  "This game is locked. Drop-outs are closed \u2014 message the admin if you can't make it. No-shows may still be charged field fees.";
 
 const HEADERS = [
   "Play Date",
