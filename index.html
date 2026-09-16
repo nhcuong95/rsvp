@@ -79,22 +79,22 @@
             <div id="player-list" class="player-list" hidden></div>
           </div>
 
-          <div id="rsvp-details" class="rsvp-details" hidden>
-            <fieldset class="field">
-              <legend>Date to play</legend>
-              <input id="play-date" name="playDate" type="hidden" required />
-              <div
-                id="date-options"
-                class="date-options"
-                role="radiogroup"
-                aria-label="Date to play"
-              ></div>
-              <label id="custom-date-field" class="custom-date-field">
-                <span>Other date</span>
-                <input id="custom-play-date" type="date" />
-              </label>
-            </fieldset>
+          <fieldset class="field">
+            <legend>Date to play</legend>
+            <input id="play-date" name="playDate" type="hidden" required />
+            <div
+              id="date-options"
+              class="date-options"
+              role="radiogroup"
+              aria-label="Date to play"
+            ></div>
+            <label id="custom-date-field" class="custom-date-field">
+              <span>Other date</span>
+              <input id="custom-play-date" type="date" />
+            </label>
+          </fieldset>
 
+          <div id="rsvp-details" class="rsvp-details" hidden>
             <div id="admin-lock-bar" class="admin-lock-bar" hidden>
               <div class="admin-lock-copy">
                 <span id="admin-lock-status" class="admin-lock-status">Unlocked</span>
@@ -172,6 +172,6 @@
 
     <script src="./admin-auth.js?v=20260915-1"></script>
     <script src="./rsvp-rules.js?v=20260626-1"></script>
-    <script src="./app.js?v=20260912-2"></script>
+    <script src="./app.js?v=20260916-1"></script>
   </body>
 </html>

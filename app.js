@@ -69,6 +69,7 @@
   const submitButton = document.querySelector("#submit-button");
   const removeRsvpButton = document.querySelector("#remove-rsvp-button");
   const tallySection = document.querySelector("#tally-section");
+  const tallyTitle = document.querySelector("#tally-title");
   const tallyCount = document.querySelector("#tally-count");
   const tallyList = document.querySelector("#tally-list");
   const adminLockBar = document.querySelector("#admin-lock-bar");
@@ -598,7 +599,9 @@
       rsvpDetails.hidden = !showDetails;
     }
     if (tallySection) {
-      tallySection.hidden = !showDetails;
+      // Show the roster for the selected date even before a player picks their
+      // name, so people can see who's already joined without signing in.
+      tallySection.hidden = !dateInput.value;
     }
   }
 
@@ -1267,6 +1270,12 @@
   function renderTally(tally) {
     const players = Array.isArray(tally?.players) ? tally.players : [];
     const totalCount = Number(tally?.totalCount || 0);
+
+    if (tallyTitle) {
+      tallyTitle.textContent = dateInput.value
+        ? `Joining ${formatShortDisplayDate(dateInput.value)}`
+        : "Joining this date";
+    }
 
     const base =
       totalCount > 0
