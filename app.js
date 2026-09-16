@@ -633,7 +633,6 @@
     }
 
     return [
-      formatVenmoHint(member.venmo),
       formatFacebookHint(member.messenger),
     ].filter(Boolean);
   }
@@ -661,20 +660,10 @@
     const contacts = roster
       .map((member) => ({
         name: String(member.name || "").trim(),
-        venmo: String(member.venmo || "").trim(),
         messenger: String(member.messenger || "").trim(),
       }))
       .filter((member) => member.name);
     writeJson(ROSTER_CONTACTS_KEY, contacts);
-  }
-
-  function formatVenmoHint(value) {
-    const text = String(value || "").trim();
-    const match = text.match(
-      /^(?:https?:\/\/)?(?:(?:www|account)\.)?venmo\.com\/(?:u\/)?([A-Za-z0-9_.-]+)\/?$/i,
-    );
-    const handle = match ? match[1] : text.replace(/^@/, "");
-    return handle ? `Venmo:@${handle}` : "";
   }
 
   function formatFacebookHint(value) {
