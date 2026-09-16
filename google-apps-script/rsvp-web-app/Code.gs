@@ -4,7 +4,15 @@ const AUDIT_SHEET_NAME = "RSVP Audit Log";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const OPEN_DATES_SHEET_NAME = "RSVP Dates";
-const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By", "Location", "Time"];
+const OPEN_DATES_HEADERS = [
+  "Play Date",
+  "Added At",
+  "Added By",
+  "Field Name",
+  "Address",
+  "Start Time",
+  "End Time",
+];
 const SPREADSHEET_ID_PROPERTY = "RSVP_SPREADSHEET_ID";
 const ROSTER_CACHE_KEY = "rsvp-public-roster-v1";
 const ROSTER_CACHE_TTL_SECONDS = 6 * 60 * 60;
@@ -427,6 +435,18 @@ function getOpenDatesSheet_() {
   }
   const headerRange = sheet.getRange(1, 1, 1, OPEN_DATES_HEADERS.length);
   const currentHeaders = headerRange.getValues()[0];
+  // One-time migration from the older ["...","Location","Time"] layout: the old
+  // "Location" (col D) held the address, so preserve it as the new Address
+  // (col E) and leave Field Name / Start Time / End Time blank. The old free-text
+  // "Time" (col E) can't map to the new dropdowns, so it is dropped.
+  if (currentHeaders[3] === "Location" && currentHeaders[4] === "Time") {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const oldLocations = sheet.getRange(2, 4, lastRow - 1, 1).getValues();
+      const migrated = oldLocations.map((r) => ["", String(r[0] || ""), "", ""]);
+      sheet.getRange(2, 4, lastRow - 1, 4).setValues(migrated);
+    }
+  }
   const needsHeaders = OPEN_DATES_HEADERS.some(
     (header, index) => currentHeaders[index] !== header,
   );
@@ -455,9 +475,10 @@ function getOpenDates_() {
   return Object.keys(seen).sort();
 }
 
-// Returns one entry per open date with its field location and time so the
-// RSVP page can show players where and when to play. Shape:
-// [{ date: "2026-09-24", location: "Magnuson Park", time: "7:00 PM" }].
+// Returns one entry per open date with its field name, address, and start/end
+// time so the RSVP page can show players where and when to play. Shape:
+// [{ date: "2026-09-24", fieldName: "Magnuson Park Field #6",
+//    address: "7400 Sand Point Way NE", startTime: "8:00 PM", endTime: "10:00 PM" }].
 function getOpenDatesDetailed_() {
   const sheet = getOpenDatesSheet_();
   const lastRow = sheet.getLastRow();
@@ -471,8 +492,10 @@ function getOpenDatesDetailed_() {
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       byDate[date] = {
         date,
-        location: sanitizeText_(row[3] || ""),
-        time: sanitizeText_(row[4] || ""),
+        fieldName: sanitizeText_(row[3] || ""),
+        address: sanitizeText_(row[4] || ""),
+        startTime: sanitizeText_(row[5] || ""),
+        endTime: sanitizeText_(row[6] || ""),
       };
     }
   });

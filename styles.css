@@ -1432,8 +1432,8 @@ body.is-admin .non-admin-only {
 
 .admin-date-details {
   flex-basis: 100%;
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 8px;
   padding-top: 4px;
@@ -1443,6 +1443,14 @@ body.is-admin .non-admin-only {
 .admin-date-field {
   display: grid;
   gap: 4px;
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+/* Field name and address are the wide inputs; the time dropdowns stay compact. */
+.admin-date-field:nth-child(1),
+.admin-date-field:nth-child(2) {
+  flex: 2 1 200px;
 }
 
 .admin-date-field span {
@@ -1451,17 +1459,25 @@ body.is-admin .non-admin-only {
   color: #64748b;
 }
 
-.admin-date-field input {
+.admin-date-field input,
+.admin-date-field select {
   border: 1px solid #c7d2e0;
   border-radius: 8px;
   padding: 7px 10px;
   font-size: 0.85rem;
   background: #fff;
+  width: 100%;
+}
+
+.admin-date-details .admin-lock-toggle {
+  align-self: end;
 }
 
 @media (max-width: 560px) {
-  .admin-date-details {
-    grid-template-columns: 1fr;
+  .admin-date-field,
+  .admin-date-field:nth-child(1),
+  .admin-date-field:nth-child(2) {
+    flex-basis: 100%;
   }
 }
 

@@ -76,8 +76,10 @@
   const adminLockStatus = document.querySelector("#admin-lock-status");
   const adminLockToggle = document.querySelector("#admin-lock-toggle");
   const adminDateToggle = document.querySelector("#admin-date-toggle");
-  const adminPlayLocation = document.querySelector("#admin-play-location");
-  const adminPlayTime = document.querySelector("#admin-play-time");
+  const adminFieldName = document.querySelector("#admin-field-name");
+  const adminAddress = document.querySelector("#admin-address");
+  const adminStartTime = document.querySelector("#admin-start-time");
+  const adminEndTime = document.querySelector("#admin-end-time");
   const adminSaveDateDetails = document.querySelector("#admin-save-date-details");
   const dateInfo = document.querySelector("#date-info");
   const dateInfoLocation = document.querySelector("#date-info-location");
@@ -330,7 +332,7 @@
     renderDateOptions();
   }
 
-  // Replace the cached field location/time for every date from a backend
+  // Replace the cached field details for every date from a backend
   // `dateDetails` array (older backends omit it, so we simply keep nothing).
   function setDateDetails(details) {
     dateDetailsByDate.clear();
@@ -341,36 +343,55 @@
       const date = String(entry?.date || "");
       if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         dateDetailsByDate.set(date, {
-          location: String(entry.location || "").trim(),
-          time: String(entry.time || "").trim(),
+          fieldName: String(entry.fieldName || "").trim(),
+          address: String(entry.address || "").trim(),
+          startTime: String(entry.startTime || "").trim(),
+          endTime: String(entry.endTime || "").trim(),
         });
       }
     });
   }
 
   function getDateDetail(playDate) {
-    return dateDetailsByDate.get(playDate) || { location: "", time: "" };
+    return (
+      dateDetailsByDate.get(playDate) || {
+        fieldName: "",
+        address: "",
+        startTime: "",
+        endTime: "",
+      }
+    );
+  }
+
+  // "8:00 PM – 10:00 PM", or just one side when only one is set.
+  function formatTimeRange(startTime, endTime) {
+    if (startTime && endTime) {
+      return `${startTime} – ${endTime}`;
+    }
+    return startTime || endTime || "";
   }
 
   // Player-facing "where & when" block under the date picker. Hidden entirely
-  // when the selected date has neither a field address nor a time set.
+  // when the selected date has no field, address, or time set.
   function updateDateInfo() {
     if (!dateInfo) {
       return;
     }
-    const playDate = dateInput.value;
-    const { location, time } = getDateDetail(playDate);
-    const hasLocation = Boolean(location);
-    const hasTime = Boolean(time);
+    const { fieldName, address, startTime, endTime } = getDateDetail(dateInput.value);
+    const locationLabel = [fieldName, address].filter(Boolean).join(" · ");
+    const mapQuery = [fieldName, address].filter(Boolean).join(", ");
+    const timeLabel = formatTimeRange(startTime, endTime);
+    const hasLocation = Boolean(locationLabel);
+    const hasTime = Boolean(timeLabel);
 
     if (dateInfoLocation) {
       dateInfoLocation.hidden = !hasLocation;
       if (dateInfoLocationText) {
-        dateInfoLocationText.textContent = location;
+        dateInfoLocationText.textContent = locationLabel;
       }
       if (dateInfoMap) {
-        if (hasLocation) {
-          dateInfoMap.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+        if (mapQuery) {
+          dateInfoMap.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`;
           dateInfoMap.hidden = false;
         } else {
           dateInfoMap.hidden = true;
@@ -380,21 +401,52 @@
     if (dateInfoTime) {
       dateInfoTime.hidden = !hasTime;
       if (dateInfoTimeText) {
-        dateInfoTimeText.textContent = time;
+        dateInfoTimeText.textContent = timeLabel;
       }
     }
     dateInfo.hidden = !(hasLocation || hasTime);
   }
 
-  // Keep the admin field/time inputs in sync with the selected date, unless the
-  // admin is actively editing one of them (don't clobber mid-typing).
+  // Fill the start/end <select>s with 30-minute options (12:00 AM–11:30 PM)
+  // plus a blank "—" default. Called once on init.
+  function populateTimeOptions() {
+    [adminStartTime, adminEndTime].forEach((select) => {
+      if (!select) {
+        return;
+      }
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "—";
+      select.append(blank);
+      for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
+        const hour24 = Math.floor(minutes / 60);
+        const minute = minutes % 60;
+        const period = hour24 < 12 ? "AM" : "PM";
+        const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+        const label = `${hour12}:${String(minute).padStart(2, "0")} ${period}`;
+        const option = document.createElement("option");
+        option.value = label;
+        option.textContent = label;
+        select.append(option);
+      }
+    });
+  }
+
+  // Keep the admin inputs in sync with the selected date, unless the admin is
+  // actively editing a text field (don't clobber mid-typing).
   function prefillAdminDateDetails() {
-    const { location, time } = getDateDetail(dateInput.value);
-    if (adminPlayLocation && document.activeElement !== adminPlayLocation) {
-      adminPlayLocation.value = location;
+    const { fieldName, address, startTime, endTime } = getDateDetail(dateInput.value);
+    if (adminFieldName && document.activeElement !== adminFieldName) {
+      adminFieldName.value = fieldName;
     }
-    if (adminPlayTime && document.activeElement !== adminPlayTime) {
-      adminPlayTime.value = time;
+    if (adminAddress && document.activeElement !== adminAddress) {
+      adminAddress.value = address;
+    }
+    if (adminStartTime) {
+      adminStartTime.value = startTime;
+    }
+    if (adminEndTime) {
+      adminEndTime.value = endTime;
     }
   }
 
@@ -510,8 +562,10 @@
     if (!adminToken || !/^\d{4}-\d{2}-\d{2}$/.test(playDate || "")) {
       return;
     }
-    const location = (adminPlayLocation?.value || "").trim();
-    const time = (adminPlayTime?.value || "").trim();
+    const fieldName = (adminFieldName?.value || "").trim();
+    const address = (adminAddress?.value || "").trim();
+    const startTime = (adminStartTime?.value || "").trim();
+    const endTime = (adminEndTime?.value || "").trim();
     const originalLabel = adminSaveDateDetails.textContent;
     adminSaveDateDetails.disabled = true;
     adminSaveDateDetails.textContent = "Saving...";
@@ -520,13 +574,15 @@
         action: "savePlayDateDetails",
         adminToken,
         playDate,
-        location,
-        time,
+        fieldName,
+        address,
+        startTime,
+        endTime,
       });
       if (result.dateDetails) {
         setDateDetails(result.dateDetails);
       } else {
-        dateDetailsByDate.set(playDate, { location, time });
+        dateDetailsByDate.set(playDate, { fieldName, address, startTime, endTime });
       }
       if (Array.isArray(result.dates)) {
         openDates = result.dates
@@ -1494,6 +1550,7 @@
   function initialize() {
     restoreRosterContacts();
     restoreLastPlayer();
+    populateTimeOptions();
     if (customDateInput) {
       customDateInput.min = rsvpRules.getStartOfMonthValue();
       customDateInput.addEventListener("change", () => {

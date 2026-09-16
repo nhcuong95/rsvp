@@ -10,7 +10,15 @@ const BILLING_MONTH_STATUS_SHEET_NAME = "Billing Month Status";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const OPEN_DATES_SHEET_NAME = "RSVP Dates";
-const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By", "Location", "Time"];
+const OPEN_DATES_HEADERS = [
+  "Play Date",
+  "Added At",
+  "Added By",
+  "Field Name",
+  "Address",
+  "Start Time",
+  "End Time",
+];
 const EXPORT_SPREADSHEET_ID = "1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ";
 const PREVIEW_MAX_ROWS = 120;
 const PREVIEW_MAX_COLUMNS = 80;
@@ -286,8 +294,10 @@ function doGet(event) {
         ok: true,
         action: "savePlayDateDetails",
         playDate: result.playDate,
-        location: result.location,
-        time: result.time,
+        fieldName: result.fieldName,
+        address: result.address,
+        startTime: result.startTime,
+        endTime: result.endTime,
         dates: result.dates,
         dateDetails: result.dateDetails,
       });
@@ -818,6 +828,18 @@ function getOpenDatesSheet_() {
   }
   const headerRange = sheet.getRange(1, 1, 1, OPEN_DATES_HEADERS.length);
   const currentHeaders = headerRange.getValues()[0];
+  // One-time migration from the older ["...","Location","Time"] layout: the old
+  // "Location" (col D) held the address, so preserve it as the new Address
+  // (col E) and leave Field Name / Start Time / End Time blank. The old free-text
+  // "Time" (col E) can't map to the new dropdowns, so it is dropped.
+  if (currentHeaders[3] === "Location" && currentHeaders[4] === "Time") {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const oldLocations = sheet.getRange(2, 4, lastRow - 1, 1).getValues();
+      const migrated = oldLocations.map((r) => ["", String(r[0] || ""), "", ""]);
+      sheet.getRange(2, 4, lastRow - 1, 4).setValues(migrated);
+    }
+  }
   const needsHeaders = OPEN_DATES_HEADERS.some(
     (header, index) => currentHeaders[index] !== header,
   );
@@ -846,8 +868,9 @@ function getOpenDates_() {
   return Object.keys(seen).sort();
 }
 
-// Returns one entry per open date with its field location and time, e.g.
-// [{ date: "2026-09-24", location: "Magnuson Park", time: "7:00 PM" }].
+// Returns one entry per open date with its field name, address, and start/end
+// time, e.g. [{ date: "2026-09-24", fieldName: "Magnuson Park Field #6",
+// address: "7400 Sand Point Way NE", startTime: "8:00 PM", endTime: "10:00 PM" }].
 // Later rows win when a date is duplicated, matching getOpenDates_ dedup.
 function getOpenDatesDetailed_() {
   const sheet = getOpenDatesSheet_();
@@ -862,8 +885,10 @@ function getOpenDatesDetailed_() {
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       byDate[date] = {
         date,
-        location: sanitizeText_(row[3] || ""),
-        time: sanitizeText_(row[4] || ""),
+        fieldName: sanitizeText_(row[3] || ""),
+        address: sanitizeText_(row[4] || ""),
+        startTime: sanitizeText_(row[5] || ""),
+        endTime: sanitizeText_(row[6] || ""),
       };
     }
   });
@@ -904,17 +929,25 @@ function setOpenDate_(params) {
         playDate,
         new Date().toISOString(),
         sanitizeText_(params.updatedBy || "admin"),
-        sanitizeText_(params.location || ""),
-        sanitizeText_(params.time || ""),
+        sanitizeText_(params.fieldName || ""),
+        sanitizeText_(params.address || ""),
+        sanitizeText_(params.startTime || ""),
+        sanitizeText_(params.endTime || ""),
       ]);
     } else if (add && row) {
       // Re-adding an existing date only refreshes details when provided,
-      // so an accidental re-add never wipes the saved location/time.
-      if (params.location !== undefined) {
-        sheet.getRange(row, 4).setValue(sanitizeText_(params.location || ""));
+      // so an accidental re-add never wipes the saved field/time.
+      if (params.fieldName !== undefined) {
+        sheet.getRange(row, 4).setValue(sanitizeText_(params.fieldName || ""));
       }
-      if (params.time !== undefined) {
-        sheet.getRange(row, 5).setValue(sanitizeText_(params.time || ""));
+      if (params.address !== undefined) {
+        sheet.getRange(row, 5).setValue(sanitizeText_(params.address || ""));
+      }
+      if (params.startTime !== undefined) {
+        sheet.getRange(row, 6).setValue(sanitizeText_(params.startTime || ""));
+      }
+      if (params.endTime !== undefined) {
+        sheet.getRange(row, 7).setValue(sanitizeText_(params.endTime || ""));
       }
     } else if (!add && row) {
       sheet.deleteRow(row);
@@ -930,8 +963,8 @@ function setOpenDate_(params) {
   }
 }
 
-// Saves the field location/time for a date without changing whether it is
-// open for RSVP. Creates the date row if it does not exist yet.
+// Saves the field name, address, and start/end time for a date without changing
+// whether it is open for RSVP. Creates the date row if it does not exist yet.
 function savePlayDateDetails_(params) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -942,8 +975,10 @@ function savePlayDateDetails_(params) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(playDate)) {
       throw new Error("Enter a valid play date");
     }
-    const location = sanitizeText_(params.location || "");
-    const time = sanitizeText_(params.time || "");
+    const fieldName = sanitizeText_(params.fieldName || "");
+    const address = sanitizeText_(params.address || "");
+    const startTime = sanitizeText_(params.startTime || "");
+    const endTime = sanitizeText_(params.endTime || "");
     const sheet = getOpenDatesSheet_();
     let row = findOpenDateRow_(sheet, playDate);
     if (!row) {
@@ -951,17 +986,20 @@ function savePlayDateDetails_(params) {
         playDate,
         new Date().toISOString(),
         sanitizeText_(params.updatedBy || "admin"),
-        location,
-        time,
+        fieldName,
+        address,
+        startTime,
+        endTime,
       ]);
     } else {
-      sheet.getRange(row, 4).setValue(location);
-      sheet.getRange(row, 5).setValue(time);
+      sheet.getRange(row, 4, 1, 4).setValues([[fieldName, address, startTime, endTime]]);
     }
     return {
       playDate,
-      location,
-      time,
+      fieldName,
+      address,
+      startTime,
+      endTime,
       dates: getOpenDates_(),
       dateDetails: getOpenDatesDetailed_(),
     };
