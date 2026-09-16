@@ -35,7 +35,7 @@
       content="https://nhcuong95.github.io/rsvp/assets/social-preview.png?v=2"
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260912-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260916-1" />
   </head>
   <body>
     <main class="shell">
@@ -94,11 +94,38 @@
             </label>
           </fieldset>
 
+          <div id="date-info" class="date-info" hidden>
+            <p id="date-info-location" class="date-info-location" hidden>
+              <span class="date-info-icon" aria-hidden="true">📍</span>
+              <span id="date-info-location-text" class="date-info-location-text"></span>
+              <a id="date-info-map" class="date-info-map" href="#" target="_blank" rel="noopener" hidden>
+                View map
+              </a>
+            </p>
+            <p id="date-info-time" class="date-info-time" hidden>
+              <span class="date-info-icon" aria-hidden="true">🕒</span>
+              <span id="date-info-time-text"></span>
+            </p>
+          </div>
+
           <div id="rsvp-details" class="rsvp-details" hidden>
             <div id="admin-lock-bar" class="admin-lock-bar" hidden>
               <div class="admin-lock-copy">
                 <span id="admin-lock-status" class="admin-lock-status">Unlocked</span>
                 <small>Admin only · pick a date (incl. "Other date"), add it to the RSVP list, then lock it after you book.</small>
+              </div>
+              <div class="admin-date-details">
+                <label class="admin-date-field">
+                  <span>Field / address</span>
+                  <input id="admin-play-location" type="text" placeholder="e.g. Magnuson Park Field #6, 7400 Sand Point Way NE" autocomplete="off" />
+                </label>
+                <label class="admin-date-field">
+                  <span>Time</span>
+                  <input id="admin-play-time" type="text" placeholder="e.g. 7:00–9:00 PM" autocomplete="off" />
+                </label>
+                <button id="admin-save-date-details" class="admin-lock-toggle" type="button">
+                  Save field &amp; time
+                </button>
               </div>
               <div class="admin-lock-actions">
                 <button id="admin-date-toggle" class="admin-lock-toggle" type="button">
@@ -172,6 +199,6 @@
 
     <script src="./admin-auth.js?v=20260915-1"></script>
     <script src="./rsvp-rules.js?v=20260626-1"></script>
-    <script src="./app.js?v=20260916-2"></script>
+    <script src="./app.js?v=20260916-3"></script>
   </body>
 </html>

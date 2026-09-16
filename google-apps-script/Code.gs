@@ -10,7 +10,7 @@ const BILLING_MONTH_STATUS_SHEET_NAME = "Billing Month Status";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const OPEN_DATES_SHEET_NAME = "RSVP Dates";
-const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By"];
+const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By", "Location", "Time"];
 const EXPORT_SPREADSHEET_ID = "1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ";
 const PREVIEW_MAX_ROWS = 120;
 const PREVIEW_MAX_COLUMNS = 80;
@@ -262,6 +262,7 @@ function doGet(event) {
         ok: true,
         action: "listPlayDates",
         dates: getOpenDates_(),
+        dateDetails: getOpenDatesDetailed_(),
       });
     }
 
@@ -274,6 +275,21 @@ function doGet(event) {
         playDate: result.playDate,
         open: result.open,
         dates: result.dates,
+        dateDetails: result.dateDetails,
+      });
+    }
+
+    if (params.action === "savePlayDateDetails") {
+      requireAdmin_(params);
+      const result = savePlayDateDetails_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "savePlayDateDetails",
+        playDate: result.playDate,
+        location: result.location,
+        time: result.time,
+        dates: result.dates,
+        dateDetails: result.dateDetails,
       });
     }
 
@@ -830,6 +846,32 @@ function getOpenDates_() {
   return Object.keys(seen).sort();
 }
 
+// Returns one entry per open date with its field location and time, e.g.
+// [{ date: "2026-09-24", location: "Magnuson Park", time: "7:00 PM" }].
+// Later rows win when a date is duplicated, matching getOpenDates_ dedup.
+function getOpenDatesDetailed_() {
+  const sheet = getOpenDatesSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+  const rows = sheet.getRange(2, 1, lastRow - 1, OPEN_DATES_HEADERS.length).getValues();
+  const byDate = {};
+  rows.forEach((row) => {
+    const date = normalizeDate_(row[0]);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      byDate[date] = {
+        date,
+        location: sanitizeText_(row[3] || ""),
+        time: sanitizeText_(row[4] || ""),
+      };
+    }
+  });
+  return Object.keys(byDate)
+    .sort()
+    .map((date) => byDate[date]);
+}
+
 function findOpenDateRow_(sheet, playDate) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) {
@@ -862,11 +904,67 @@ function setOpenDate_(params) {
         playDate,
         new Date().toISOString(),
         sanitizeText_(params.updatedBy || "admin"),
+        sanitizeText_(params.location || ""),
+        sanitizeText_(params.time || ""),
       ]);
+    } else if (add && row) {
+      // Re-adding an existing date only refreshes details when provided,
+      // so an accidental re-add never wipes the saved location/time.
+      if (params.location !== undefined) {
+        sheet.getRange(row, 4).setValue(sanitizeText_(params.location || ""));
+      }
+      if (params.time !== undefined) {
+        sheet.getRange(row, 5).setValue(sanitizeText_(params.time || ""));
+      }
     } else if (!add && row) {
       sheet.deleteRow(row);
     }
-    return { playDate, open: add, dates: getOpenDates_() };
+    return {
+      playDate,
+      open: add,
+      dates: getOpenDates_(),
+      dateDetails: getOpenDatesDetailed_(),
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Saves the field location/time for a date without changing whether it is
+// open for RSVP. Creates the date row if it does not exist yet.
+function savePlayDateDetails_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const playDate = normalizeDate_(
+      required_(params.playDate, "Missing play date"),
+    );
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(playDate)) {
+      throw new Error("Enter a valid play date");
+    }
+    const location = sanitizeText_(params.location || "");
+    const time = sanitizeText_(params.time || "");
+    const sheet = getOpenDatesSheet_();
+    let row = findOpenDateRow_(sheet, playDate);
+    if (!row) {
+      sheet.appendRow([
+        playDate,
+        new Date().toISOString(),
+        sanitizeText_(params.updatedBy || "admin"),
+        location,
+        time,
+      ]);
+    } else {
+      sheet.getRange(row, 4).setValue(location);
+      sheet.getRange(row, 5).setValue(time);
+    }
+    return {
+      playDate,
+      location,
+      time,
+      dates: getOpenDates_(),
+      dateDetails: getOpenDatesDetailed_(),
+    };
   } finally {
     lock.releaseLock();
   }

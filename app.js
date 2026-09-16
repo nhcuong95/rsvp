@@ -76,6 +76,15 @@
   const adminLockStatus = document.querySelector("#admin-lock-status");
   const adminLockToggle = document.querySelector("#admin-lock-toggle");
   const adminDateToggle = document.querySelector("#admin-date-toggle");
+  const adminPlayLocation = document.querySelector("#admin-play-location");
+  const adminPlayTime = document.querySelector("#admin-play-time");
+  const adminSaveDateDetails = document.querySelector("#admin-save-date-details");
+  const dateInfo = document.querySelector("#date-info");
+  const dateInfoLocation = document.querySelector("#date-info-location");
+  const dateInfoLocationText = document.querySelector("#date-info-location-text");
+  const dateInfoMap = document.querySelector("#date-info-map");
+  const dateInfoTime = document.querySelector("#date-info-time");
+  const dateInfoTimeText = document.querySelector("#date-info-time-text");
   let adminToken = "";
   const overrideDialog = document.querySelector("#override-dialog");
   const previousRsvp = document.querySelector("#previous-rsvp");
@@ -85,6 +94,7 @@
   let pendingOverridePayload = null;
   let latestTallyRequest = 0;
   const dateLockCache = new Map();
+  const dateDetailsByDate = new Map();
   let openDates = [];
   let rememberedPlayerName = "";
   let selectedPlayerName = "";
@@ -211,6 +221,7 @@
     setRemoveRsvpAction(null);
     renderParticipantOptions();
     updatePlayerMemory();
+    updateDateInfo();
     updateAdminLockBar();
     loadTally(value);
   }
@@ -222,6 +233,7 @@
     setRemoveRsvpAction(null);
     renderParticipantOptions();
     updatePlayerMemory();
+    updateDateInfo();
     updateAdminLockBar();
     tallyCount.textContent = "Choose a date";
     tallyList.replaceChildren();
@@ -311,10 +323,79 @@
       openDates = Array.isArray(result.dates)
         ? result.dates.filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)).sort()
         : [];
+      setDateDetails(result.dateDetails);
     } catch (error) {
       openDates = [];
     }
     renderDateOptions();
+  }
+
+  // Replace the cached field location/time for every date from a backend
+  // `dateDetails` array (older backends omit it, so we simply keep nothing).
+  function setDateDetails(details) {
+    dateDetailsByDate.clear();
+    if (!Array.isArray(details)) {
+      return;
+    }
+    details.forEach((entry) => {
+      const date = String(entry?.date || "");
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        dateDetailsByDate.set(date, {
+          location: String(entry.location || "").trim(),
+          time: String(entry.time || "").trim(),
+        });
+      }
+    });
+  }
+
+  function getDateDetail(playDate) {
+    return dateDetailsByDate.get(playDate) || { location: "", time: "" };
+  }
+
+  // Player-facing "where & when" block under the date picker. Hidden entirely
+  // when the selected date has neither a field address nor a time set.
+  function updateDateInfo() {
+    if (!dateInfo) {
+      return;
+    }
+    const playDate = dateInput.value;
+    const { location, time } = getDateDetail(playDate);
+    const hasLocation = Boolean(location);
+    const hasTime = Boolean(time);
+
+    if (dateInfoLocation) {
+      dateInfoLocation.hidden = !hasLocation;
+      if (dateInfoLocationText) {
+        dateInfoLocationText.textContent = location;
+      }
+      if (dateInfoMap) {
+        if (hasLocation) {
+          dateInfoMap.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+          dateInfoMap.hidden = false;
+        } else {
+          dateInfoMap.hidden = true;
+        }
+      }
+    }
+    if (dateInfoTime) {
+      dateInfoTime.hidden = !hasTime;
+      if (dateInfoTimeText) {
+        dateInfoTimeText.textContent = time;
+      }
+    }
+    dateInfo.hidden = !(hasLocation || hasTime);
+  }
+
+  // Keep the admin field/time inputs in sync with the selected date, unless the
+  // admin is actively editing one of them (don't clobber mid-typing).
+  function prefillAdminDateDetails() {
+    const { location, time } = getDateDetail(dateInput.value);
+    if (adminPlayLocation && document.activeElement !== adminPlayLocation) {
+      adminPlayLocation.value = location;
+    }
+    if (adminPlayTime && document.activeElement !== adminPlayTime) {
+      adminPlayTime.value = time;
+    }
   }
 
   function canSelectNotGoing(playDate) {
@@ -389,6 +470,8 @@
         : "Add to RSVP list";
       adminDateToggle.classList.toggle("is-listed", listed);
     }
+
+    prefillAdminDateDetails();
   }
 
   async function toggleSelectedDateInList() {
@@ -409,11 +492,55 @@
       openDates = Array.isArray(result.dates)
         ? result.dates.filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v)).sort()
         : openDates;
+      if (result.dateDetails) {
+        setDateDetails(result.dateDetails);
+      }
       renderDateOptions();
+      updateDateInfo();
     } catch (error) {
       setStatus(error.message, "error");
     } finally {
       adminDateToggle.disabled = false;
+      updateAdminLockBar();
+    }
+  }
+
+  async function saveSelectedDateDetails() {
+    const playDate = dateInput.value;
+    if (!adminToken || !/^\d{4}-\d{2}-\d{2}$/.test(playDate || "")) {
+      return;
+    }
+    const location = (adminPlayLocation?.value || "").trim();
+    const time = (adminPlayTime?.value || "").trim();
+    const originalLabel = adminSaveDateDetails.textContent;
+    adminSaveDateDetails.disabled = true;
+    adminSaveDateDetails.textContent = "Saving...";
+    try {
+      const result = await requestAdminLock({
+        action: "savePlayDateDetails",
+        adminToken,
+        playDate,
+        location,
+        time,
+      });
+      if (result.dateDetails) {
+        setDateDetails(result.dateDetails);
+      } else {
+        dateDetailsByDate.set(playDate, { location, time });
+      }
+      if (Array.isArray(result.dates)) {
+        openDates = result.dates
+          .filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v))
+          .sort();
+        renderDateOptions();
+      }
+      updateDateInfo();
+      setStatus("Field and time saved.", "success");
+    } catch (error) {
+      setStatus(error.message, "error");
+    } finally {
+      adminSaveDateDetails.disabled = false;
+      adminSaveDateDetails.textContent = originalLabel;
       updateAdminLockBar();
     }
   }
@@ -1383,6 +1510,9 @@
     }
     if (adminDateToggle) {
       adminDateToggle.addEventListener("click", toggleSelectedDateInList);
+    }
+    if (adminSaveDateDetails) {
+      adminSaveDateDetails.addEventListener("click", saveSelectedDateDetails);
     }
     if (window.RsvpAdminAuth) {
       window.RsvpAdminAuth.onChange((state) => {

@@ -4,7 +4,7 @@ const AUDIT_SHEET_NAME = "RSVP Audit Log";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const OPEN_DATES_SHEET_NAME = "RSVP Dates";
-const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By"];
+const OPEN_DATES_HEADERS = ["Play Date", "Added At", "Added By", "Location", "Time"];
 const SPREADSHEET_ID_PROPERTY = "RSVP_SPREADSHEET_ID";
 const ROSTER_CACHE_KEY = "rsvp-public-roster-v1";
 const ROSTER_CACHE_TTL_SECONDS = 6 * 60 * 60;
@@ -71,6 +71,7 @@ function doGet(event) {
       return jsonp_(callback, {
         ok: true,
         dates: getOpenDates_(),
+        dateDetails: getOpenDatesDetailed_(),
       });
     }
 
@@ -452,6 +453,32 @@ function getOpenDates_() {
     }
   });
   return Object.keys(seen).sort();
+}
+
+// Returns one entry per open date with its field location and time so the
+// RSVP page can show players where and when to play. Shape:
+// [{ date: "2026-09-24", location: "Magnuson Park", time: "7:00 PM" }].
+function getOpenDatesDetailed_() {
+  const sheet = getOpenDatesSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+  const rows = sheet.getRange(2, 1, lastRow - 1, OPEN_DATES_HEADERS.length).getValues();
+  const byDate = {};
+  rows.forEach((row) => {
+    const date = normalizeDate_(row[0]);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      byDate[date] = {
+        date,
+        location: sanitizeText_(row[3] || ""),
+        time: sanitizeText_(row[4] || ""),
+      };
+    }
+  });
+  return Object.keys(byDate)
+    .sort()
+    .map((date) => byDate[date]);
 }
 
 function appendAuditLog_(params, action, row, existingRsvp) {
