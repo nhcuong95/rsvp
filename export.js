@@ -518,7 +518,7 @@
     return url.toString();
   }
 
-  function requestAppsScript(payload) {
+  function requestAppsScript(payload, timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
       const callbackName = `adminCallback_${Date.now()}_${Math.random()
         .toString(36)
@@ -527,7 +527,7 @@
       const timeout = window.setTimeout(() => {
         cleanup();
         reject(new Error("Request timed out"));
-      }, 15000);
+      }, timeoutMs);
 
       function cleanup() {
         window.clearTimeout(timeout);
@@ -566,11 +566,16 @@
     );
 
     try {
-      const result = await requestAppsScript({
-        action: mode === "export" ? "exportMonth" : "viewMonth",
-        month,
-        adminToken,
-      });
+      const result = await requestAppsScript(
+        {
+          action: mode === "export" ? "exportMonth" : "viewMonth",
+          month,
+          adminToken,
+        },
+        // Recreating a report writes and reformats a whole sheet server-side,
+        // which regularly needs longer than a plain view load.
+        mode === "export" ? 60000 : 15000,
+      );
       if (requestId !== latestLoadRequest) {
         return;
       }

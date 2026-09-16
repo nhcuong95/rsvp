@@ -2910,11 +2910,49 @@ function exportMonthRoster_(month) {
 }
 
 function buildMonthRosterMatrix_(sourceSheet, month) {
+  const rosterNameSet = getRosterNameSet_();
   const totalsByDate = {};
-  const monthDates = getExportDatesForMonth_(sourceSheet, month).filter((date) => {
-    totalsByDate[date] = getRsvpTotalsByPlayerForDate_(sourceSheet, date);
-    return getTotalParticipants_(totalsByDate[date]) >= EXPORT_MIN_PARTICIPANTS;
+
+  // Seed every candidate play date so calendar days with no RSVPs are still
+  // considered (and dropped later by the EXPORT_MIN_PARTICIPANTS filter).
+  getExportDatesForMonth_(sourceSheet, month).forEach((date) => {
+    totalsByDate[date] = {};
   });
+
+  // Single pass over the RSVP sheet instead of one full read per date.
+  const lastRow = sourceSheet.getLastRow();
+  if (lastRow >= 2) {
+    sourceSheet
+      .getRange(2, 1, lastRow - 1, 4)
+      .getValues()
+      .forEach((row) => {
+        const rowDate = normalizeDate_(row[0]);
+        if (rowDate.indexOf(`${month}-`) !== 0) {
+          return;
+        }
+
+        const playerName = String(row[1] || "").trim();
+        const vote = normalize_(row[2]);
+        if (vote !== "yes" || !isRosterPlayer_(playerName, rosterNameSet)) {
+          return;
+        }
+
+        if (!totalsByDate[rowDate]) {
+          totalsByDate[rowDate] = {};
+        }
+
+        const participantCount = clampStoredParticipantCount_(row[3]);
+        totalsByDate[rowDate][normalize_(playerName)] = Number.isFinite(
+          participantCount,
+        )
+          ? participantCount
+          : 1;
+      });
+  }
+
+  const monthDates = Object.keys(totalsByDate)
+    .filter((date) => getTotalParticipants_(totalsByDate[date]) >= EXPORT_MIN_PARTICIPANTS)
+    .sort();
   const header = ["Name"].concat(monthDates.map((date) => formatDisplayDate_(date)));
 
   return [header].concat(
