@@ -1362,14 +1362,8 @@
   }
 
   function restoreLastPlayer() {
-    const lastRsvp = readJson(LAST_RSVP_KEY, null);
-    const lastPlayerName = readString(LAST_PLAYER_KEY) || lastRsvp?.playerName || "";
-    if (lastPlayerName && isValidPlayerName(lastPlayerName)) {
-      rememberedPlayerName = lastPlayerName;
-      selectPlayerName(lastPlayerName, { remember: false, keepFocus: true });
-    } else if (lastPlayerName) {
-      playerInput.value = lastPlayerName;
-    }
+    // Auto-fill of the last-used player name is intentionally disabled:
+    // the field always starts empty so players type/pick their own name each time.
   }
 
   function initialize() {

@@ -111,6 +111,15 @@
     notify();
   }
 
+  // A validation failure only means "log out" when the backend explicitly
+  // rejects the token. Network timeouts / unreachable errors are transient
+  // (they happen whenever the Apps Script backend is under load, e.g. on tab
+  // switches) and must NOT clear a token that is almost certainly still valid.
+  function isAuthRejection(error) {
+    const message = String(error && error.message ? error.message : error);
+    return /login expired|login required|invalid|unauthor/i.test(message);
+  }
+
   async function validateStoredAuth() {
     const auth = readAdminAuth();
     if (!auth?.token) {
@@ -119,18 +128,35 @@
       return getState();
     }
 
+    // If the stored token has a known expiry that has already passed, it is
+    // genuinely dead — clear it locally without waiting on the network.
+    if (auth.expiresAt && Number(auth.expiresAt) <= Date.now()) {
+      clearAdminAuth();
+      notify();
+      return getState();
+    }
+
+    // Optimistically treat the stored token as valid so a slow or failed
+    // validation request does not flip the UI to logged-out.
+    adminToken = auth.token;
+    expiresAt = Number(auth.expiresAt || 0);
+    notify();
+
     try {
       await requestAppsScript({
         action: "validateAdmin",
         adminToken: auth.token,
       });
-      adminToken = auth.token;
-      expiresAt = Number(auth.expiresAt || 0);
-    } catch {
-      clearAdminAuth();
+      // Still valid — the optimistic state above is correct.
+    } catch (error) {
+      // Only log out on an explicit token rejection; keep the token on
+      // timeouts / network errors so admins stay signed in.
+      if (isAuthRejection(error)) {
+        clearAdminAuth();
+        notify();
+      }
     }
 
-    notify();
     return getState();
   }
 
