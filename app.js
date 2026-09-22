@@ -42,6 +42,17 @@
   const BROWSER_ID_KEY = "play-rsvp.browserId";
   const DISPLAY_LOCALE = "en-US";
   const PLAY_DAYS = [2, 4, 6]; // Tuesday, Thursday, Saturday
+  // Weather forecast shown on each voting date chip (Open-Meteo, no API key).
+  // One coordinate covers the group's play area (Mercer Island / Seattle, WA);
+  // the forecast barely varies across the metro, so a single point is enough.
+  // Adjust these if the group moves elsewhere.
+  const WEATHER_LAT = 47.5707;
+  const WEATHER_LON = -122.2221;
+  const WEATHER_TIMEZONE = "America/Los_Angeles";
+  // Open-Meteo only forecasts ~16 days out; dates beyond that just show no
+  // weather. Refetch at most hourly so revisits/date changes stay cheap.
+  const WEATHER_FORECAST_DAYS = 16;
+  const WEATHER_CACHE_MS = 60 * 60 * 1000;
   const FETCH_TIMEOUT_MS = 45000;
   const JSONP_TIMEOUT_MS = 45000;
   const PARTICIPANT_OPTIONS = [
@@ -97,6 +108,9 @@
   let latestTallyRequest = 0;
   const dateLockCache = new Map();
   const dateDetailsByDate = new Map();
+  const weatherByDate = new Map();
+  let weatherPromise = null;
+  let weatherFetchedAt = 0;
   let openDates = [];
   let rememberedPlayerName = "";
   let selectedPlayerName = "";
@@ -248,6 +262,143 @@
     customDateInput?.showPicker?.();
   }
 
+  // Map a WMO weather code (returned by Open-Meteo) to a compact emoji plus a
+  // spoken-friendly label used for the chip's title/aria description.
+  function describeWeatherCode(code) {
+    const map = {
+      0: ["☀️", "Clear"],
+      1: ["🌤️", "Mostly sunny"],
+      2: ["⛅", "Partly cloudy"],
+      3: ["☁️", "Overcast"],
+      45: ["🌫️", "Fog"],
+      48: ["🌫️", "Fog"],
+      51: ["🌦️", "Light drizzle"],
+      53: ["🌦️", "Drizzle"],
+      55: ["🌦️", "Heavy drizzle"],
+      56: ["🌧️", "Freezing drizzle"],
+      57: ["🌧️", "Freezing drizzle"],
+      61: ["🌧️", "Light rain"],
+      63: ["🌧️", "Rain"],
+      65: ["🌧️", "Heavy rain"],
+      66: ["🌧️", "Freezing rain"],
+      67: ["🌧️", "Freezing rain"],
+      71: ["🌨️", "Light snow"],
+      73: ["🌨️", "Snow"],
+      75: ["🌨️", "Heavy snow"],
+      77: ["🌨️", "Snow grains"],
+      80: ["🌦️", "Light showers"],
+      81: ["🌦️", "Showers"],
+      82: ["⛈️", "Heavy showers"],
+      85: ["🌨️", "Snow showers"],
+      86: ["🌨️", "Snow showers"],
+      95: ["⛈️", "Thunderstorm"],
+      96: ["⛈️", "Thunderstorm w/ hail"],
+      99: ["⛈️", "Thunderstorm w/ hail"],
+    };
+    return map[code] || ["🌡️", "Weather"];
+  }
+
+  // Build the visible text + accessible label for one date's forecast, or null
+  // when we have no forecast for that date (too far out, or fetch failed).
+  function weatherSummaryFor(value) {
+    const info = weatherByDate.get(value);
+    if (!info) {
+      return null;
+    }
+    const [icon, condition] = describeWeatherCode(info.code);
+    const hi = Number.isFinite(info.high) ? `${Math.round(info.high)}°` : "";
+    const lo = Number.isFinite(info.low) ? `${Math.round(info.low)}°` : "";
+    const temp = hi && lo ? `${hi}/${lo}` : hi || lo;
+    const showRain = Number.isFinite(info.precip) && info.precip >= 20;
+    const text = [temp, showRain ? `☔ ${Math.round(info.precip)}%` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    const rainLabel = Number.isFinite(info.precip)
+      ? `, ${Math.round(info.precip)}% chance of rain`
+      : "";
+    const tempLabel = hi && lo ? `, high ${hi}, low ${lo}` : temp ? `, ${temp}` : "";
+    return { icon, text, label: `${condition}${tempLabel}${rainLabel}` };
+  }
+
+  // Add or refresh the little weather line on each date chip. Runs after the
+  // chips are (re)built and again once a forecast arrives, without re-rendering
+  // the chips (so the current selection and tally are left untouched).
+  function decorateDateOptionsWithWeather() {
+    dateOptions
+      .querySelectorAll(".date-option[data-date]")
+      .forEach((button) => {
+        const value = button.dataset.date;
+        if (!value || value === "custom") {
+          return;
+        }
+        const summary = weatherSummaryFor(value);
+        let line = button.querySelector(".date-weather");
+        if (!summary) {
+          if (line) {
+            line.remove();
+          }
+          return;
+        }
+        if (!line) {
+          line = document.createElement("span");
+          line.className = "date-weather";
+          button.append(line);
+        }
+        line.textContent = summary.text
+          ? `${summary.icon} ${summary.text}`
+          : summary.icon;
+        line.title = summary.label;
+        line.setAttribute("aria-label", `Forecast: ${summary.label}`);
+      });
+  }
+
+  // Fetch the daily forecast once (cached hourly) and paint it onto the chips.
+  async function loadWeather() {
+    const now = Date.now();
+    if (weatherPromise && now - weatherFetchedAt < WEATHER_CACHE_MS) {
+      return weatherPromise;
+    }
+    weatherFetchedAt = now;
+    const params = new URLSearchParams({
+      latitude: String(WEATHER_LAT),
+      longitude: String(WEATHER_LON),
+      daily:
+        "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+      temperature_unit: "celsius",
+      timezone: WEATHER_TIMEZONE,
+      forecast_days: String(WEATHER_FORECAST_DAYS),
+    });
+    const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+    weatherPromise = withTimeout(
+      fetch(url, { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          const daily = data?.daily;
+          const times = Array.isArray(daily?.time) ? daily.time : [];
+          if (!times.length) {
+            return false;
+          }
+          weatherByDate.clear();
+          times.forEach((date, index) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+              return;
+            }
+            weatherByDate.set(String(date), {
+              code: Number(daily.weather_code?.[index]),
+              high: Number(daily.temperature_2m_max?.[index]),
+              low: Number(daily.temperature_2m_min?.[index]),
+              precip: Number(daily.precipitation_probability_max?.[index]),
+            });
+          });
+          decorateDateOptionsWithWeather();
+          return true;
+        }),
+      8000,
+      false,
+    );
+    return weatherPromise;
+  }
+
   function pickDefaultOpenDate() {
     if (!openDates.length) {
       return "";
@@ -304,6 +455,10 @@
       selectCustomDateOption();
     });
     dateOptions.append(otherButton);
+
+    // Paint any already-cached forecast onto the freshly built chips; a
+    // pending/first fetch repaints them when it resolves.
+    decorateDateOptionsWithWeather();
 
     // Keep the current selection if it is still a valid open date; otherwise
     // fall back to the default open date (leaving nothing selected if the admin
@@ -1569,6 +1724,7 @@
     }
     renderDateOptions();
     loadPlayDates();
+    loadWeather();
 
     if (adminLockToggle) {
       adminLockToggle.addEventListener("click", toggleSelectedDateLock);

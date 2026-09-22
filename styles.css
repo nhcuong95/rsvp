@@ -451,6 +451,18 @@ textarea {
   font-weight: 600;
 }
 
+.date-weather {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.date-option.active .date-weather {
+  color: inherit;
+}
+
 .custom-date-field {
   display: none;
   gap: 8px;
