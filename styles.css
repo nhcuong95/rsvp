@@ -1939,6 +1939,28 @@ body.is-admin .non-admin-only {
   line-height: 1.2;
 }
 
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share-button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  padding: 6px 12px;
+  box-shadow: none;
+}
+
+.share-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
 .tally p {
   margin: 0;
   color: var(--muted);

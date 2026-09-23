@@ -85,6 +85,9 @@
   const tallyTitle = document.querySelector("#tally-title");
   const tallyCount = document.querySelector("#tally-count");
   const tallyList = document.querySelector("#tally-list");
+  const shareActions = document.querySelector("#share-actions");
+  const shareDateButton = document.querySelector("#share-date-button");
+  const copyInviteButton = document.querySelector("#copy-invite-button");
   const adminLockBar = document.querySelector("#admin-lock-bar");
   const adminLockStatus = document.querySelector("#admin-lock-status");
   const adminLockToggle = document.querySelector("#admin-lock-toggle");
@@ -113,6 +116,11 @@
   const weatherByDate = new Map();
   const geocodeCache = new Map(); // address key -> Promise<{lat, lon} | null>
   const forecastCache = new Map(); // "lat,lon" -> { at, promise: Map<date, info> }
+  // Date from a shared link (index.html?date=YYYY-MM-DD). Applied once the open
+  // dates load; cleared after it is used (or found not to be open).
+  let pendingLinkedDate = readLinkedDate();
+  // Headcount of the most recently rendered tally, for the share invite.
+  let lastTally = null;
   let openDates = [];
   let rememberedPlayerName = "";
   let selectedPlayerName = "";
@@ -240,6 +248,7 @@
     renderParticipantOptions();
     updatePlayerMemory();
     updateDateInfo();
+    updateShareActions();
     updateAdminLockBar();
     loadTally(value);
   }
@@ -252,6 +261,7 @@
     renderParticipantOptions();
     updatePlayerMemory();
     updateDateInfo();
+    updateShareActions();
     updateAdminLockBar();
     tallyCount.textContent = "Choose a date";
     tallyList.replaceChildren();
@@ -541,8 +551,13 @@
     // Keep the current selection if it is still a valid open date; otherwise
     // fall back to the default open date (leaving nothing selected if the admin
     // has not opened any dates yet — members can still use "Other date").
+    // A shared link (?date=) wins once that date is open.
     const current = dateInput.value;
-    if (current && (openDates.includes(current) || current === customDateInput?.value)) {
+    if (pendingLinkedDate && openDates.includes(pendingLinkedDate)) {
+      const linked = pendingLinkedDate;
+      pendingLinkedDate = "";
+      selectPlayDate(linked);
+    } else if (current && (openDates.includes(current) || current === customDateInput?.value)) {
       selectPlayDate(current, { isCustom: current === customDateInput?.value });
     } else {
       const def = pickDefaultOpenDate();
@@ -550,6 +565,8 @@
         selectPlayDate(def);
       }
     }
+    // openDates may have changed even if the selection did not.
+    updateShareActions();
   }
 
   async function loadPlayDates(attempt) {
@@ -560,6 +577,15 @@
         : [];
       setDateDetails(result.dateDetails);
       renderDateOptions();
+      // renderDateOptions() consumes a shared ?date= that is open; if it is
+      // still pending, the link points at a date that is not open (anymore).
+      if (pendingLinkedDate) {
+        setStatus(
+          `${formatShortDisplayDate(pendingLinkedDate)} isn't open for RSVP anymore. Pick another date above.`,
+          "warning",
+        );
+        pendingLinkedDate = "";
+      }
       // Now that dates and their field addresses are known, fetch per-field
       // weather and paint it onto the chips.
       loadWeather();
@@ -649,6 +675,132 @@
       }
     }
     dateInfo.hidden = !(hasLocation || hasTime);
+  }
+
+  // ?date=YYYY-MM-DD from a shared link, or "" when absent/invalid.
+  function readLinkedDate() {
+    try {
+      const value = new URLSearchParams(window.location.search).get("date") || "";
+      return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+    } catch {
+      return "";
+    }
+  }
+
+  // Link that opens this page with the given date preselected.
+  function buildDateLink(playDate) {
+    return `${window.location.origin}${window.location.pathname}?date=${playDate}`;
+  }
+
+  // Paste-ready message for the group chat: date, time, field, weather,
+  // headcount, and a link that opens this date. Lines without data are skipped.
+  function buildInviteText(playDate) {
+    const { fieldName, address, startTime, endTime } = getDateDetail(playDate);
+    const lines = [`⚽ Soccer · ${formatShortDisplayDate(playDate)}`];
+    const time = formatTimeRange(startTime, endTime);
+    if (time) {
+      lines.push(`🕒 ${time}`);
+    }
+    const place = [fieldName, address].filter(Boolean).join(" · ");
+    if (place) {
+      lines.push(`📍 ${place}`);
+    }
+    const weather = weatherSummaryFor(playDate);
+    if (weather) {
+      lines.push(weather.text ? `${weather.icon} ${weather.text}` : weather.icon);
+    }
+    if (lastTally && lastTally.date === playDate) {
+      const going =
+        lastTally.totalCount > 0
+          ? `👥 ${lastTally.totalCount} going`
+          : "👥 No one yet. Be the first!";
+      lines.push(lastTally.locked ? `${going} · 🔒 Locked` : going);
+    }
+    lines.push(`Vote here: ${buildDateLink(playDate)}`);
+    return lines.join("\n");
+  }
+
+  // Share buttons only make sense for an open date: a link to any other date
+  // would not preselect anything.
+  function updateShareActions() {
+    if (shareActions) {
+      shareActions.hidden = !openDates.includes(dateInput.value);
+    }
+  }
+
+  // Briefly swap a button's label to confirm an action, then restore it.
+  function flashButtonLabel(button, label) {
+    if (!button.dataset.label) {
+      button.dataset.label = button.textContent.trim();
+    }
+    button.textContent = label;
+    window.clearTimeout(Number(button.dataset.flashTimer || 0));
+    button.dataset.flashTimer = String(
+      window.setTimeout(() => {
+        button.textContent = button.dataset.label;
+      }, 2000),
+    );
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Permission denied etc.; fall through to the legacy path.
+      }
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
+    textarea.remove();
+    return copied;
+  }
+
+  async function copyInvite() {
+    const playDate = dateInput.value;
+    if (!openDates.includes(playDate)) {
+      return;
+    }
+    const text = buildInviteText(playDate);
+    if (await copyText(text)) {
+      flashButtonLabel(copyInviteButton, "✓ Copied");
+    } else {
+      // Last resort: show the text so it can be copied by hand.
+      window.prompt("Copy this invite:", text);
+    }
+  }
+
+  // Native share sheet (phones, Safari). Cancelling is fine; any other failure
+  // falls back to copying the invite.
+  async function shareDate() {
+    const playDate = dateInput.value;
+    if (!openDates.includes(playDate)) {
+      return;
+    }
+    try {
+      // The link is already inside the text; passing `url` as well makes some
+      // targets (iOS) append it a second time.
+      await navigator.share({
+        title: `Soccer · ${formatShortDisplayDate(playDate)}`,
+        text: buildInviteText(playDate),
+      });
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        copyInvite();
+      }
+    }
   }
 
   // Fill the start/end <select>s with 30-minute options (12:00 AM–11:30 PM)
@@ -1688,6 +1840,11 @@
   function renderTally(tally) {
     const players = Array.isArray(tally?.players) ? tally.players : [];
     const totalCount = Number(tally?.totalCount || 0);
+    lastTally = {
+      date: dateInput.value,
+      totalCount,
+      locked: Boolean(tally?.locked),
+    };
 
     if (tallyTitle) {
       tallyTitle.textContent = dateInput.value
@@ -1807,6 +1964,15 @@
     }
     renderDateOptions();
     loadPlayDates();
+
+    if (shareDateButton) {
+      // Only offer the native share sheet where the browser has one.
+      shareDateButton.hidden = typeof navigator.share !== "function";
+      shareDateButton.addEventListener("click", shareDate);
+    }
+    if (copyInviteButton) {
+      copyInviteButton.addEventListener("click", copyInvite);
+    }
 
     if (adminLockToggle) {
       adminLockToggle.addEventListener("click", toggleSelectedDateLock);
