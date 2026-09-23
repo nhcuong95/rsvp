@@ -43,14 +43,16 @@
   const DISPLAY_LOCALE = "en-US";
   const PLAY_DAYS = [2, 4, 6]; // Tuesday, Thursday, Saturday
   // Weather forecast shown on each voting date chip (Open-Meteo, no API key).
-  // One coordinate covers the group's play area (Mercer Island / Seattle, WA);
-  // the forecast barely varies across the metro, so a single point is enough.
-  // Adjust these if the group moves elsewhere.
+  // Each date's forecast is fetched for its own field: the saved address is
+  // geocoded (OpenStreetMap Nominatim) and the forecast pulled for that point.
+  // These coordinates are the FALLBACK used when a date has no address or the
+  // geocode fails (the group's play area, Mercer Island / Seattle, WA).
   const WEATHER_LAT = 47.5707;
   const WEATHER_LON = -122.2221;
   const WEATHER_TIMEZONE = "America/Los_Angeles";
   // Open-Meteo only forecasts ~16 days out; dates beyond that just show no
-  // weather. Refetch at most hourly so revisits/date changes stay cheap.
+  // weather. Cache forecasts per coordinate for an hour so revisits/date
+  // changes stay cheap; geocoded addresses are cached for the whole session.
   const WEATHER_FORECAST_DAYS = 16;
   const WEATHER_CACHE_MS = 60 * 60 * 1000;
   const FETCH_TIMEOUT_MS = 45000;
@@ -109,8 +111,8 @@
   const dateLockCache = new Map();
   const dateDetailsByDate = new Map();
   const weatherByDate = new Map();
-  let weatherPromise = null;
-  let weatherFetchedAt = 0;
+  const geocodeCache = new Map(); // address key -> Promise<{lat, lon} | null>
+  const forecastCache = new Map(); // "lat,lon" -> { at, promise: Map<date, info> }
   let openDates = [];
   let rememberedPlayerName = "";
   let selectedPlayerName = "";
@@ -352,16 +354,54 @@
       });
   }
 
-  // Fetch the daily forecast once (cached hourly) and paint it onto the chips.
-  async function loadWeather() {
-    const now = Date.now();
-    if (weatherPromise && now - weatherFetchedAt < WEATHER_CACHE_MS) {
-      return weatherPromise;
+  // Geocode a field address to coordinates via OpenStreetMap Nominatim (free,
+  // CORS-enabled). Cached per address for the session; resolves null on any
+  // miss so the caller can fall back to the default coordinate.
+  function geocodeAddress(query) {
+    const key = query.trim().toLowerCase();
+    if (!key) {
+      return Promise.resolve(null);
     }
-    weatherFetchedAt = now;
+    if (geocodeCache.has(key)) {
+      return geocodeCache.get(key);
+    }
     const params = new URLSearchParams({
-      latitude: String(WEATHER_LAT),
-      longitude: String(WEATHER_LON),
+      q: query,
+      format: "json",
+      limit: "1",
+    });
+    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+    // Keep the default referrer so Nominatim can attribute the request to this
+    // site (its usage policy expects an identifying Referer). force-cache lets
+    // the browser reuse a geocode result across reloads.
+    const promise = withTimeout(
+      fetch(url, { cache: "force-cache", credentials: "omit" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((rows) => {
+          const hit = Array.isArray(rows) ? rows[0] : null;
+          const lat = Number(hit?.lat);
+          const lon = Number(hit?.lon);
+          return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+        }),
+      6000,
+      null,
+    );
+    geocodeCache.set(key, promise);
+    return promise;
+  }
+
+  // Fetch the daily forecast for one coordinate as a Map<date, info>. Cached
+  // per coordinate for an hour.
+  function fetchForecastForCoord(lat, lon) {
+    const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+    const now = Date.now();
+    const cached = forecastCache.get(key);
+    if (cached && now - cached.at < WEATHER_CACHE_MS) {
+      return cached.promise;
+    }
+    const params = new URLSearchParams({
+      latitude: String(lat),
+      longitude: String(lon),
       daily:
         "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
       temperature_unit: "celsius",
@@ -369,34 +409,72 @@
       forecast_days: String(WEATHER_FORECAST_DAYS),
     });
     const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
-    weatherPromise = withTimeout(
+    const promise = withTimeout(
       fetch(url, { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" })
         .then((response) => (response.ok ? response.json() : null))
         .then((data) => {
           const daily = data?.daily;
           const times = Array.isArray(daily?.time) ? daily.time : [];
-          if (!times.length) {
-            return false;
-          }
-          weatherByDate.clear();
+          const byDate = new Map();
           times.forEach((date, index) => {
             if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
               return;
             }
-            weatherByDate.set(String(date), {
+            byDate.set(String(date), {
               code: Number(daily.weather_code?.[index]),
               high: Number(daily.temperature_2m_max?.[index]),
               low: Number(daily.temperature_2m_min?.[index]),
               precip: Number(daily.precipitation_probability_max?.[index]),
             });
           });
-          decorateDateOptionsWithWeather();
-          return true;
+          return byDate;
         }),
       8000,
-      false,
+      new Map(),
     );
-    return weatherPromise;
+    forecastCache.set(key, { at: now, promise });
+    return promise;
+  }
+
+  // For every open date, fetch the forecast at that date's own field (its saved
+  // address, geocoded) and paint the chips. Dates that share a field are
+  // geocoded/fetched once; dates with no address use the fallback coordinate.
+  // Safe to call repeatedly — geocodes and forecasts are cached.
+  async function loadWeather() {
+    const groups = new Map();
+    openDates.forEach((date) => {
+      const { fieldName, address } = getDateDetail(date);
+      const key = `${address}|${fieldName}`.toLowerCase();
+      if (!groups.has(key)) {
+        groups.set(key, { fieldName, address, dates: [] });
+      }
+      groups.get(key).dates.push(date);
+    });
+    if (!groups.size) {
+      return;
+    }
+    await Promise.all(
+      [...groups.values()].map(async ({ fieldName, address, dates }) => {
+        // Nominatim resolves a clean street address well but chokes on a
+        // "Field Name, 123 St" combo, so try the address first, then the field
+        // name as a place, then fall back to the group's default coordinate.
+        let geo = address ? await geocodeAddress(address) : null;
+        if (!geo && fieldName) {
+          geo = await geocodeAddress(fieldName);
+        }
+        const lat = geo ? geo.lat : WEATHER_LAT;
+        const lon = geo ? geo.lon : WEATHER_LON;
+        const byDate = await fetchForecastForCoord(lat, lon);
+        dates.forEach((date) => {
+          if (byDate.has(date)) {
+            weatherByDate.set(date, byDate.get(date));
+          }
+        });
+        // Paint as each field resolves so weather appears progressively.
+        decorateDateOptionsWithWeather();
+      }),
+    );
+    decorateDateOptionsWithWeather();
   }
 
   function pickDefaultOpenDate() {
@@ -482,6 +560,9 @@
         : [];
       setDateDetails(result.dateDetails);
       renderDateOptions();
+      // Now that dates and their field addresses are known, fetch per-field
+      // weather and paint it onto the chips.
+      loadWeather();
     } catch (error) {
       // The first request often times out while the Apps Script backend cold
       // starts; retry a couple of times so dates (and the field/time info) show
@@ -754,6 +835,8 @@
         renderDateOptions();
       }
       updateDateInfo();
+      // The field/address may have changed, so refresh this date's forecast.
+      loadWeather();
       setStatus("Field and time saved.", "success");
     } catch (error) {
       setStatus(error.message, "error");
@@ -1724,7 +1807,6 @@
     }
     renderDateOptions();
     loadPlayDates();
-    loadWeather();
 
     if (adminLockToggle) {
       adminLockToggle.addEventListener("click", toggleSelectedDateLock);
