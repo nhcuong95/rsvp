@@ -13,6 +13,7 @@ Static RSVP page for weekly play sessions.
 - Existing RSVPs show a confirmation dialog before they are overwritten.
 - After submit and when the date changes, the page shows the reserved participant tally for that date.
 - Admins can set a max players (spots, guests included) per date. Once full, new RSVPs join a waitlist (stored as Vote `Waitlist`, which billing and the report ignore) and move up automatically, in sign-up order, when a spot opens. Confirmed players are never bumped; admin attendance edits override the limit.
+- Once an admin locks a date, confirmed players can't drop out, but they can tap **Request to withdraw**. They keep their spot (and can still be charged) while their row shows "Withdraw requested"; they can cancel it. A logged-in admin sees **Accept** / **Decline** on that row: accepting removes the RSVP and moves the waitlist up, declining keeps them in. The request is stored in the RSVPs sheet's `Withdraw Requested At` column.
 - `export.html` exports a selected month, then renders clickable group heatmap and player-filtered overview.
 - `billing.html` renders monthly billing from attendance, editable field blocks, extras purchases, and local payment statuses.
 - `admin.html` lets an admin edit the current month attendance in a player-by-date table.

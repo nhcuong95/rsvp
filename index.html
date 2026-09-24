@@ -35,7 +35,7 @@
       content="https://nhcuong95.github.io/rsvp/assets/social-preview.png?v=2"
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260923-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260924-1" />
   </head>
   <body>
     <main class="shell">
@@ -190,6 +190,12 @@
           <button id="remove-rsvp-button" class="remove-rsvp-button" type="button" hidden>
             Made a mistake? Remove this RSVP
           </button>
+          <div id="withdraw-action" class="withdraw-action" hidden>
+            <button id="withdraw-button" class="withdraw-button" type="button">
+              Can't make it? Request to withdraw
+            </button>
+            <p id="withdraw-hint" class="withdraw-hint"></p>
+          </div>
         </form>
 
         <section id="tally-section" class="tally" aria-labelledby="tally-title" hidden>
@@ -246,6 +252,6 @@
 
     <script src="./admin-auth.js?v=20260915-1"></script>
     <script src="./rsvp-rules.js?v=20260626-1"></script>
-    <script src="./app.js?v=20260923-2"></script>
+    <script src="./app.js?v=20260924-1"></script>
   </body>
 </html>

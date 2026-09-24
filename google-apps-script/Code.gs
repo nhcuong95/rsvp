@@ -42,7 +42,12 @@ const HEADERS = [
   "Participant Count",
   "Submitted At",
   "Updated At",
+  // Set by the RSVP backend when a confirmed player asks to drop out of a
+  // locked game; resolveWithdrawRequest_ accepts (deletes the row) or
+  // declines (clears the cell).
+  "Withdraw Requested At",
 ];
+const WITHDRAW_COLUMN = 7;
 const ROSTER_HEADERS = ["Name", "Venmo", "Facebook", "Note", "Zelle"];
 const BILLING_COURT_HEADERS = [
   "ID",
@@ -246,6 +251,18 @@ function doGet(event) {
         action: result.action,
         row: result.row,
         existing: result.existing || null,
+        audit: result.audit || null,
+        tally: result.tally,
+      });
+    }
+
+    if (params.action === "resolveWithdraw") {
+      requireAdmin_(params);
+      const result = resolveWithdrawRequest_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: result.action,
+        promoted: result.promoted,
         audit: result.audit || null,
         tally: result.tally,
       });
@@ -970,6 +987,67 @@ function promoteWaitlistForDate_(playDate, capacity) {
       );
     });
   return promoted;
+}
+
+function getDateCapacity_(playDate) {
+  const saved = getOpenDatesDetailed_().find((entry) => entry.date === playDate);
+  return saved ? saved.capacity : null;
+}
+
+// Accept or decline a player's request to withdraw from a locked game (made
+// on the RSVP page). Accepting removes their RSVP and, unlike other admin
+// attendance edits, promotes the waitlist: the game hasn't been played yet,
+// so the freed spot goes to the next person in line. Declining keeps them in.
+function resolveWithdrawRequest_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const playDate = normalizeDate_(required_(params.playDate, "Missing play date"));
+    const playerName = required_(params.playerName, "Missing player name").trim();
+    const decision = normalize_(params.decision);
+    if (decision !== "accept" && decision !== "decline") {
+      throw new Error("Choose accept or decline");
+    }
+    validatePlayerName_(playerName);
+    const sheet = getSheet_();
+    const rows = findExistingRows_(sheet, playDate, playerName);
+    const existingRsvp = rows.length > 0 ? getRsvpAtRow_(sheet, rows[0]) : null;
+    // The player may have cancelled (or an admin resolved it) since the page
+    // loaded: never remove someone who no longer asks to leave.
+    if (!existingRsvp || !existingRsvp.withdrawRequestedAt) {
+      throw new Error(
+        `${playerName} has no pending withdraw request for this date. Refresh to see the latest.`,
+      );
+    }
+
+    const action = decision === "accept" ? "withdraw_accepted" : "withdraw_declined";
+    if (decision === "accept") {
+      rows.sort((first, second) => second - first).forEach((row) => {
+        sheet.deleteRow(row);
+      });
+    } else {
+      rows.forEach((row) => {
+        sheet.getRange(row, WITHDRAW_COLUMN).setValue("");
+      });
+    }
+    const audit = appendAuditLog_(
+      {
+        playDate,
+        playerName: existingRsvp.playerName,
+        participantCount: existingRsvp.participantCount,
+      },
+      action,
+      rows[0],
+      existingRsvp,
+    );
+    const promoted = decision === "accept"
+      ? promoteWaitlistForDate_(playDate, getDateCapacity_(playDate))
+      : [];
+    return { action, promoted, audit, tally: getTally_(playDate) };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Sheets can store a picked time ("8:00 PM") as a datetime value, which reads
@@ -1788,6 +1866,7 @@ function getRsvpAtRow_(sheet, row) {
     participantCount: clampStoredParticipantCount_(values[3]),
     submittedAt: String(values[4] || ""),
     updatedAt: String(values[5] || ""),
+    withdrawRequestedAt: String(values[WITHDRAW_COLUMN - 1] || "").trim(),
   };
 }
 
@@ -3507,13 +3586,14 @@ function getTally_(playDate) {
     return tally;
   }
 
-  const rows = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+  const rows = sheet.getRange(2, 1, lastRow - 1, WITHDRAW_COLUMN).getValues();
 
   rows.forEach((row) => {
     const rowDate = normalizeDate_(row[0]);
     const playerName = String(row[1] || "").trim();
     const vote = normalize_(row[2]);
     const participantCount = clampStoredParticipantCount_(row[3]);
+    const withdrawRequested = Boolean(String(row[WITHDRAW_COLUMN - 1] || "").trim());
 
     if (
       rowDate !== playDate ||
@@ -3532,6 +3612,8 @@ function getTally_(playDate) {
       existingPlayer.participantCount += Number.isFinite(participantCount)
         ? participantCount
         : 1;
+      existingPlayer.withdrawRequested =
+        existingPlayer.withdrawRequested || withdrawRequested;
       return;
     } else {
       tally.players.push({
@@ -3539,6 +3621,7 @@ function getTally_(playDate) {
         participantCount: Number.isFinite(participantCount)
           ? participantCount
           : 1,
+        withdrawRequested,
       });
     }
   });

@@ -84,6 +84,9 @@
   const status = document.querySelector("#status");
   const submitButton = document.querySelector("#submit-button");
   const removeRsvpButton = document.querySelector("#remove-rsvp-button");
+  const withdrawAction = document.querySelector("#withdraw-action");
+  const withdrawButton = document.querySelector("#withdraw-button");
+  const withdrawHint = document.querySelector("#withdraw-hint");
   const tallySection = document.querySelector("#tally-section");
   const tallyTitle = document.querySelector("#tally-title");
   const tallyCount = document.querySelector("#tally-count");
@@ -1109,6 +1112,147 @@
     );
   }
 
+  function hasWithdrawRequest(playDate, playerName) {
+    const name = String(playerName || "").trim().toLowerCase();
+    return Boolean(
+      name &&
+        lastTally &&
+        lastTally.date === playDate &&
+        lastTally.withdrawNames.includes(name),
+    );
+  }
+
+  // A confirmed player on a locked date can't drop out, but can ask an admin
+  // to let them withdraw (or take back a request they already made).
+  function canRequestWithdraw(playDate, playerName) {
+    const name = String(playerName || "").trim().toLowerCase();
+    return Boolean(
+      name &&
+        lastTally &&
+        lastTally.date === playDate &&
+        lastTally.playerNames.includes(name) &&
+        (dateLockCache.get(playDate) === true || hasWithdrawRequest(playDate, name)),
+    );
+  }
+
+  function updateWithdrawAction() {
+    if (!withdrawAction) {
+      return;
+    }
+    const playDate = dateInput.value;
+    const playerName =
+      selectedPlayerName && playerInput.value.trim() === selectedPlayerName
+        ? selectedPlayerName
+        : "";
+    const available = canRequestWithdraw(playDate, playerName);
+    withdrawAction.hidden = !available;
+    if (!available) {
+      return;
+    }
+    // Removing is refused on a locked date; the withdraw request replaces it.
+    if (removeRsvpButton) {
+      removeRsvpButton.hidden = true;
+    }
+    const requested = hasWithdrawRequest(playDate, playerName);
+    withdrawButton.textContent = requested
+      ? "Cancel my withdraw request"
+      : "Can't make it? Request to withdraw";
+    withdrawButton.classList.toggle("is-requested", requested);
+    withdrawHint.textContent = requested
+      ? "Withdraw requested. You're still in (and may be charged) until an admin accepts it."
+      : "This game is locked. An admin will review your request; if accepted, you're removed and your spot goes to the waitlist.";
+  }
+
+  async function toggleWithdrawRequest() {
+    const playDate = dateInput.value;
+    const playerName = selectedPlayerName;
+    if (!canRequestWithdraw(playDate, playerName)) {
+      return;
+    }
+    const cancelling = hasWithdrawRequest(playDate, playerName);
+    withdrawButton.disabled = true;
+    setStatus(
+      cancelling ? "Cancelling your withdraw request..." : "Sending your withdraw request...",
+      "",
+    );
+
+    try {
+      const result = await requestAppsScript(
+        await enrichPayloadWithAuditMetadata({
+          action: cancelling ? "cancelWithdraw" : "requestWithdraw",
+          playerName,
+          playDate,
+          ...getClientAuditFields(),
+        }),
+      );
+      rememberPlayerName(playerName);
+      if (dateInput.value === playDate) {
+        renderTally(result.tally);
+      }
+      setStatus(
+        cancelling
+          ? "Withdraw request cancelled. You're still in."
+          : "Withdraw request sent. You're still in until an admin accepts it.",
+        "success",
+      );
+    } catch (error) {
+      setStatus(error.message, "error");
+    } finally {
+      withdrawButton.disabled = false;
+      updateWithdrawAction();
+    }
+  }
+
+  // Admin: accept (remove the player; the waitlist moves up) or decline a
+  // withdraw request from the player's row in the tally.
+  async function resolveWithdrawRequest(playDate, playerName, decision, buttons) {
+    if (!adminToken) {
+      return;
+    }
+    if (
+      decision === "accept" &&
+      !window.confirm(
+        `Remove ${playerName} from ${formatShortDisplayDate(playDate)}? Their spot goes to the next person on the waitlist.`,
+      )
+    ) {
+      return;
+    }
+    buttons.forEach((button) => {
+      button.disabled = true;
+    });
+    setStatus(
+      decision === "accept" ? `Removing ${playerName}...` : `Declining ${playerName}'s request...`,
+      "",
+    );
+    try {
+      const result = await requestAdminLock({
+        action: "resolveWithdraw",
+        adminToken,
+        playDate,
+        playerName,
+        decision,
+      });
+      const promoted = Array.isArray(result.promoted) ? result.promoted : [];
+      if (decision === "decline") {
+        setStatus(`Declined. ${playerName} is still in.`, "success");
+      } else if (promoted.length) {
+        setStatus(
+          `Removed ${playerName}. Moved up from the waitlist: ${promoted.join(", ")}.`,
+          "success",
+        );
+      } else {
+        setStatus(`Removed ${playerName}.`, "success");
+      }
+    } catch (error) {
+      setStatus(error.message, "error");
+    } finally {
+      // The admin backend's tally has no waitlist: reload from the RSVP one.
+      if (dateInput.value === playDate) {
+        loadTally(playDate);
+      }
+    }
+  }
+
   function requestAdminLock(payload) {
     return new Promise((resolve, reject) => {
       const callbackName = `playRsvpLock_${Date.now()}_${Math.random()
@@ -1417,6 +1561,7 @@
 
     updateSubmitButton(selectedValidName ? currentName : "");
     updateSectionVisibility(selectedValidName);
+    updateWithdrawAction();
   }
 
   function updateSubmitButton(playerName) {
@@ -1690,7 +1835,7 @@
       removeRsvpButton.textContent = "Made a mistake? Remove this RSVP";
       return;
     }
-    removeRsvpButton.hidden = false;
+    removeRsvpButton.hidden = canRequestWithdraw(payload.playDate, payload.playerName);
     removeRsvpButton.textContent = `Made a mistake? Remove RSVP for ${payload.playerName} on ${formatShortDisplayDate(payload.playDate)}`;
   }
 
@@ -1727,6 +1872,24 @@
       clientVendor: navigator.vendor || "",
       clientReferrer: document.referrer || "",
       clientPageUrl: window.location.href || "",
+    };
+  }
+
+  // Device details recorded in the RSVP audit log for non-submit actions.
+  function getClientAuditFields() {
+    return {
+      browserId: getBrowserId(),
+      browserSignature: getBrowserSignature(),
+      clientDeviceClass: getClientDeviceClass(),
+      clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      clientLanguage: navigator.language || "",
+      clientScreen: getClientScreen(),
+      clientUserAgent: navigator.userAgent || "",
+      clientPlatform: navigator.platform || "",
+      clientVendor: navigator.vendor || "",
+      clientReferrer: document.referrer || "",
+      clientPageUrl: window.location.href || "",
+      submittedAt: new Date().toISOString(),
     };
   }
 
@@ -2094,18 +2257,7 @@
           action: "delete",
           playerName: payload.playerName,
           playDate: payload.playDate,
-          browserId: getBrowserId(),
-          browserSignature: getBrowserSignature(),
-          clientDeviceClass: getClientDeviceClass(),
-          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
-          clientLanguage: navigator.language || "",
-          clientScreen: getClientScreen(),
-          clientUserAgent: navigator.userAgent || "",
-          clientPlatform: navigator.platform || "",
-          clientVendor: navigator.vendor || "",
-          clientReferrer: document.referrer || "",
-          clientPageUrl: window.location.href || "",
-          submittedAt: new Date().toISOString(),
+          ...getClientAuditFields(),
         }),
       );
 
@@ -2128,13 +2280,22 @@
     // Older backends send no waitlist; treat that as an empty line.
     const waitlist = Array.isArray(tally?.waitlist) ? tally.waitlist : [];
     const capacity = getDateDetail(dateInput.value).capacity;
+    const lowerName = (player) => String(player.name || "").trim().toLowerCase();
+    // Submit replies carry no lock flag: keep the one loaded for the date.
+    const locked =
+      typeof tally?.locked === "boolean"
+        ? tally.locked
+        : dateLockCache.get(dateInput.value) === true;
     lastTally = {
       date: dateInput.value,
+      raw: tally,
       totalCount,
-      locked: Boolean(tally?.locked),
+      locked,
       capacity,
       waitlistCount: Number(tally?.waitlistCount || 0),
-      waitlistNames: waitlist.map((player) => String(player.name || "").trim().toLowerCase()),
+      waitlistNames: waitlist.map(lowerName),
+      playerNames: players.map(lowerName),
+      withdrawNames: players.filter((player) => player.withdrawRequested).map(lowerName),
     };
 
     if (tallyTitle) {
@@ -2150,9 +2311,10 @@
     if (capacity !== null) {
       base = `${totalCount}/${capacity} spots${totalCount >= capacity ? " · Full" : ""}`;
     }
-    tallyCount.textContent = tally?.locked ? `${base} · 🔒 Locked` : base;
+    tallyCount.textContent = locked ? `${base} · 🔒 Locked` : base;
     renderWaitlist(waitlist);
 
+    const playDate = dateInput.value;
     tallyList.replaceChildren(
       ...players.map((player) => {
         const item = document.createElement("li");
@@ -2166,9 +2328,43 @@
         participants.textContent = formatParticipantCount(participantCount);
 
         item.append(name, participants);
+        if (player.withdrawRequested) {
+          item.classList.add("has-withdraw-request");
+          const badge = document.createElement("span");
+          badge.className = "withdraw-badge";
+          badge.textContent = "Withdraw requested";
+          name.append(" ", badge);
+          if (adminToken) {
+            item.classList.add("has-withdraw-review");
+            item.append(buildWithdrawReview(playDate, player.name));
+          }
+        }
         return item;
       }),
     );
+    updateWithdrawAction();
+  }
+
+  function buildWithdrawReview(playDate, playerName) {
+    const review = document.createElement("span");
+    const accept = document.createElement("button");
+    const decline = document.createElement("button");
+    review.className = "withdraw-review";
+    accept.type = "button";
+    decline.type = "button";
+    accept.className = "withdraw-accept";
+    decline.className = "withdraw-decline";
+    accept.textContent = "Accept";
+    decline.textContent = "Decline";
+    accept.setAttribute("aria-label", `Accept ${playerName}'s withdraw request`);
+    decline.setAttribute("aria-label", `Decline ${playerName}'s withdraw request`);
+    const buttons = [accept, decline];
+    accept.addEventListener("click", () =>
+      resolveWithdrawRequest(playDate, playerName, "accept", buttons));
+    decline.addEventListener("click", () =>
+      resolveWithdrawRequest(playDate, playerName, "decline", buttons));
+    review.append(accept, decline);
+    return review;
   }
 
   function renderWaitlist(waitlist) {
@@ -2306,10 +2502,17 @@
     if (adminSaveDateDetails) {
       adminSaveDateDetails.addEventListener("click", saveSelectedDateDetails);
     }
+    if (withdrawButton) {
+      withdrawButton.addEventListener("click", toggleWithdrawRequest);
+    }
     if (window.RsvpAdminAuth) {
       window.RsvpAdminAuth.onChange((state) => {
         adminToken = state.isLoggedIn ? state.token : "";
         updateAdminLockBar();
+        // Show or hide Accept/Decline on withdraw requests.
+        if (lastTally && lastTally.date === dateInput.value) {
+          renderTally(lastTally.raw);
+        }
       });
     }
 

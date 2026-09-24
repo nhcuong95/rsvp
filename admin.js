@@ -462,6 +462,10 @@
         deleted: "Removed",
         delete_not_found: "Remove attempted",
         needs_confirmation: "Update confirmation shown",
+        withdraw_requested: "Asked to withdraw",
+        withdraw_cancelled: "Withdraw request cancelled",
+        withdraw_accepted: "Withdraw accepted (removed)",
+        withdraw_declined: "Withdraw declined",
       }[action] || action || "Changed"
     );
   }
@@ -476,7 +480,7 @@
     if (entry.action === "updated") {
       return `${previousCount || 0} -> ${nextCount}`;
     }
-    if (entry.action === "deleted") {
+    if (entry.action === "deleted" || entry.action === "withdraw_accepted") {
       return `Removed ${previousCount || nextCount || ""}`.trim();
     }
     if (entry.action === "delete_not_found") {

@@ -25,7 +25,7 @@ const ROSTER_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const PLAY_START_HOUR = 6;
 const UNVOTE_LOCK_HOURS_BEFORE_PLAY = 6;
 const UNVOTE_LOCK_MESSAGE =
-  "This game is locked. Drop-outs are closed \u2014 message the admin if you can't make it. No-shows may still be charged field fees.";
+  "This game is locked. Drop-outs are closed \u2014 tap \"Request to withdraw\" if you can't make it. No-shows may still be charged field fees.";
 
 const HEADERS = [
   "Play Date",
@@ -34,7 +34,12 @@ const HEADERS = [
   "Participant Count",
   "Submitted At",
   "Updated At",
+  // Set when a confirmed player asks to drop out of a locked game. They keep
+  // their spot (Vote stays "Yes") until an admin accepts, which deletes the
+  // row, or declines, which clears this cell.
+  "Withdraw Requested At",
 ];
+const WITHDRAW_COLUMN = 7;
 const ROSTER_HEADERS = ["Name", "Venmo", "Facebook", "Note", "Zelle"];
 const AUDIT_HEADERS = [
   "Logged At",
@@ -93,6 +98,17 @@ function doGet(event) {
       return jsonp_(callback, {
         ok: true,
         tally: getTally_(required_(params.playDate, "Missing play date")),
+      });
+    }
+
+    if (params.action === "requestWithdraw" || params.action === "cancelWithdraw") {
+      const result = setWithdrawRequest_(params, params.action === "requestWithdraw");
+      return jsonp_(callback, {
+        ok: true,
+        action: result.action,
+        row: result.row,
+        audit: result.audit || null,
+        tally: result.tally,
       });
     }
 
@@ -194,6 +210,68 @@ function deleteRsvp_(params) {
       audit,
       tally: buildTallyFromSnapshot_(next, playDate, rosterNameSet),
     };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// A confirmed player asks to drop out of a locked game (requested = true), or
+// takes that back. They keep their spot until an admin accepts on the RSVP
+// page (admin backend resolveWithdrawRequest_), which removes them and lets
+// the waitlist in. Repeating a request or a cancel is a no-op, so retries are
+// safe.
+function setWithdrawRequest_(params, requested) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const playDate = required_(params.playDate, "Missing play date");
+    const playerName = required_(params.playerName, "Missing player name").trim();
+    const sheet = getSheet_();
+    const rosterNameSet = getRosterNameSet_();
+    validatePlayerName_(playerName, rosterNameSet);
+    const snapshot = readRsvpRows_(sheet);
+    const rows = findExistingRowsInSnapshot_(snapshot, playDate, playerName);
+    if (rows.length === 0) {
+      throw new Error("No RSVP on file for this player and date.");
+    }
+    const existingRsvp = getRsvpFromSnapshot_(snapshot, rows[0]);
+    const locked = isDateLocked_(playDate);
+    if (requested && !isYesVote_(existingRsvp.vote)) {
+      throw new Error("You're on the waitlist, so you can leave anytime: choose \"Not going\" instead.");
+    }
+    if (requested && !locked) {
+      throw new Error("This game isn't locked, so you can just choose \"Not going\".");
+    }
+
+    let current = snapshot;
+    let action = requested ? "withdraw_already_requested" : "withdraw_not_requested";
+    let audit = null;
+    if (Boolean(existingRsvp.withdrawRequestedAt) !== requested) {
+      const value = requested ? new Date().toISOString() : "";
+      rows.forEach((row) => {
+        sheet.getRange(row, WITHDRAW_COLUMN).setValue(value);
+      });
+      action = requested ? "withdraw_requested" : "withdraw_cancelled";
+      audit = appendAuditLog_(
+        Object.assign({}, params, { participantCount: existingRsvp.participantCount }),
+        action,
+        rows[0],
+        existingRsvp,
+      );
+      current = snapshot.map((entry) => {
+        if (rows.indexOf(entry.rowNumber) === -1) {
+          return entry;
+        }
+        const values = entry.values.slice();
+        values[WITHDRAW_COLUMN - 1] = value;
+        return { rowNumber: entry.rowNumber, values };
+      });
+    }
+
+    const tally = buildTallyFromSnapshot_(current, playDate, rosterNameSet);
+    tally.locked = locked;
+    return { action, row: rows[0], audit, tally };
   } finally {
     lock.releaseLock();
   }
@@ -316,9 +394,14 @@ function upsertRsvpWithLock_(params) {
     sheet.getRange(row, 1, 1, values.length).setValues([values]);
     audit = appendAuditLog_(params, "updated", row, existingRsvp);
     // Duplicate rows were deleted above, shifting rows below them: re-read.
+    // Otherwise keep the untouched Withdraw Requested cell in the snapshot.
     current = matchingRows.length > 1
       ? readRsvpRows_(sheet)
-      : upsertSnapshotRow_(current, row, values);
+      : upsertSnapshotRow_(
+        current,
+        row,
+        values.concat(snapshot.find((entry) => entry.rowNumber === row).values.slice(values.length)),
+      );
     current = promoteWaitlist_(sheet, current, playDate, capacity, rosterNameSet);
     return Object.assign(
       {
@@ -870,6 +953,7 @@ function rsvpValuesToRecord_(values) {
     participantCount: clampStoredParticipantCount_(values[3]),
     submittedAt: String(values[4] || ""),
     updatedAt: String(values[5] || ""),
+    withdrawRequestedAt: String(values[WITHDRAW_COLUMN - 1] || "").trim(),
   };
 }
 
@@ -946,12 +1030,16 @@ function buildTallyFromSnapshot_(snapshot, playDate, rosterNameSet) {
 
     if (existingPlayer) {
       existingPlayer.participantCount += rsvp.participantCount;
+      existingPlayer.withdrawRequested =
+        existingPlayer.withdrawRequested || Boolean(rsvp.withdrawRequestedAt);
       return;
     }
 
     tally.players.push({
       name: rsvp.playerName,
       participantCount: rsvp.participantCount,
+      // Asked to drop out of the locked game; still holds the spot.
+      withdrawRequested: Boolean(rsvp.withdrawRequestedAt),
     });
   });
 

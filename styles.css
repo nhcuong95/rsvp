@@ -569,6 +569,41 @@ button:disabled {
   box-shadow: none;
 }
 
+.withdraw-action {
+  display: grid;
+  gap: 6px;
+}
+
+.withdraw-button {
+  border: 1px solid #f2b8a2;
+  background: #fff4ed;
+  color: var(--error);
+  box-shadow: none;
+}
+
+.withdraw-button:hover {
+  border-color: var(--error);
+  background: #ffe7dd;
+  box-shadow: none;
+}
+
+.withdraw-button.is-requested {
+  border-color: var(--line-strong);
+  background: white;
+  color: var(--text);
+}
+
+.withdraw-button.is-requested:hover {
+  background: var(--surface);
+}
+
+.withdraw-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
 .inline-button {
   min-height: 32px;
   padding: 6px 10px;
@@ -2081,6 +2116,57 @@ body.is-admin .non-admin-only {
   color: var(--muted);
   flex: 0 0 auto;
   font-size: 0.88rem;
+}
+
+/* Beats the .tally-list li rule: a player asking to drop out. */
+.tally-list li.has-withdraw-request {
+  border-color: #f5c77e;
+  background: #fffaf0;
+}
+
+/* Admin rows put Accept / Decline on their own line. */
+.tally-list li.has-withdraw-review {
+  flex-wrap: wrap;
+}
+
+.has-withdraw-review .tally-participants {
+  margin-left: auto;
+}
+
+.withdraw-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.74rem;
+  font-weight: 800;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+
+.withdraw-review {
+  display: flex;
+  flex-basis: 100%;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.withdraw-review button {
+  min-height: 34px;
+  padding: 4px 14px;
+  font-size: 0.84rem;
+  box-shadow: none;
+}
+
+.withdraw-review .withdraw-decline {
+  border: 1px solid var(--line-strong);
+  background: white;
+  color: var(--text);
+}
+
+.withdraw-review .withdraw-decline:hover {
+  background: var(--surface);
 }
 
 .page-footer {
