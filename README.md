@@ -89,11 +89,19 @@ Then open:
 - Browser tests: `http://localhost:8000/tests/rsvp-rules.test.html`
 - Billing parser tests: `http://localhost:8000/tests/billing-parser.test.html`
 
+Backend tests run both `Code.gs` files under Node (18+, nothing to install) against an in-memory fake Google Sheet:
+
+```bash
+node --test "tests/backend/*.test.js"
+```
+
+To try front-end and backend changes together before deploying, run `node tests/backend/local-server.js` and open `http://localhost:8770/`. The page talks to the local copies of both backends on a throwaway fake sheet (never the real one); `/__login-admin` signs the browser in as admin.
+
 Development workflow:
 
 1. Edit `index.html`, `app.js`, `admin.html`, `admin.js`, `roster.html`, `roster.js`, `export.html`, `export.js`, or `styles.css`.
 2. If frontend assets change, bump the query string on the referenced JS/CSS file in the HTML to avoid stale GitHub Pages/browser cache.
-3. If backend behavior changes, edit `google-apps-script/Code.gs`.
+3. If backend behavior changes, edit `google-apps-script/Code.gs` and run the backend tests.
 4. Paste the full `Code.gs` into Apps Script.
 5. Deploy a **New version** of the Apps Script Web App.
 6. Commit and push changes to `main`.

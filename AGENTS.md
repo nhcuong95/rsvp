@@ -28,6 +28,8 @@ Each front-end file hard-codes its backend's Web App URL as `APPS_SCRIPT_URL`
 
 ## Deploying a backend change (`*.gs`)
 
+0. **Run the backend tests first:** `node --test "tests/backend/*.test.js"`
+   (runs both `Code.gs` files against a fake sheet; see README).
 1. **Open the right project** at <https://script.google.com/home/my>:
    - Admin backend → **"Soccer RSVP admin"** (or the RSVP Google Sheet →
      `Extensions > Apps Script`).
