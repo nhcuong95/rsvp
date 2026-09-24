@@ -55,6 +55,9 @@
   // changes stay cheap; geocoded addresses are cached for the whole session.
   const WEATHER_FORECAST_DAYS = 16;
   const WEATHER_CACHE_MS = 60 * 60 * 1000;
+  // Game length assumed for the game-time forecast when only a start or end
+  // time is saved for a date.
+  const DEFAULT_GAME_HOURS = 2;
   const FETCH_TIMEOUT_MS = 45000;
   const JSONP_TIMEOUT_MS = 45000;
   const PARTICIPANT_OPTIONS = [
@@ -103,6 +106,10 @@
   const dateInfoMap = document.querySelector("#date-info-map");
   const dateInfoTime = document.querySelector("#date-info-time");
   const dateInfoTimeText = document.querySelector("#date-info-time-text");
+  const dateInfoWeather = document.querySelector("#date-info-weather");
+  const dateInfoWeatherIcon = document.querySelector("#date-info-weather-icon");
+  const dateInfoWeatherText = document.querySelector("#date-info-weather-text");
+  const dateInfoWeatherHours = document.querySelector("#date-info-weather-hours");
   let adminToken = "";
   const overrideDialog = document.querySelector("#override-dialog");
   const previousRsvp = document.querySelector("#previous-rsvp");
@@ -275,8 +282,15 @@
   }
 
   // Map a WMO weather code (returned by Open-Meteo) to a compact emoji plus a
-  // spoken-friendly label used for the chip's title/aria description.
-  function describeWeatherCode(code) {
+  // spoken-friendly label used for the chip's title/aria description. Pass
+  // isNight for hourly slots after dark so a clear evening isn't shown as ☀️.
+  function describeWeatherCode(code, isNight) {
+    if (isNight && (code === 0 || code === 1)) {
+      return ["🌙", code === 0 ? "Clear" : "Mostly clear"];
+    }
+    if (isNight && code === 2) {
+      return ["☁️", "Partly cloudy"];
+    }
     const map = {
       0: ["☀️", "Clear"],
       1: ["🌤️", "Mostly sunny"],
@@ -330,6 +344,144 @@
       : "";
     const tempLabel = hi && lo ? `, high ${hi}, low ${lo}` : temp ? `, ${temp}` : "";
     return { icon, text, label: `${condition}${tempLabel}${rainLabel}` };
+  }
+
+  // "8:30 PM" (the admin time format) or "20:30" -> 20.5; NaN if unparseable.
+  function parseTimeOfDay(value) {
+    const match = /^(\d{1,2}):(\d{2})\s*([AP]M)?$/i.exec(String(value || "").trim());
+    if (!match) {
+      return NaN;
+    }
+    let hour = Number(match[1]);
+    if (match[3]) {
+      hour = (hour % 12) + (match[3].toUpperCase() === "PM" ? 12 : 0);
+    }
+    return hour + Number(match[2]) / 60;
+  }
+
+  // Key of the hourly slot starting `hour` hours after midnight of playDate
+  // (hour may pass 24 for games that run past midnight).
+  function hourKey(playDate, hour) {
+    const [year, month, day] = playDate.split("-").map(Number);
+    const at = new Date(year, month - 1, day, hour);
+    return `${formatDate(at)}T${String(at.getHours()).padStart(2, "0")}:00`;
+  }
+
+  // "8:30 PM" / "9 PM" for a fractional hour (may be >= 24).
+  function formatClock(time) {
+    const minutes = Math.round((((time % 24) + 24) % 24) * 60);
+    const hour24 = Math.floor(minutes / 60) % 24;
+    const minute = minutes % 60;
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    const period = hour24 < 12 ? "AM" : "PM";
+    return minute
+      ? `${hour12}:${String(minute).padStart(2, "0")} ${period}`
+      : `${hour12} ${period}`;
+  }
+
+  // "9–10:30 PM", or "11 PM–12:30 AM" when the span crosses AM/PM.
+  function formatClockSpan(from, to) {
+    const start = formatClock(from);
+    const end = formatClock(to);
+    const startPeriod = start.slice(-2);
+    return startPeriod === end.slice(-2)
+      ? `${start.slice(0, -3)}–${end}`
+      : `${start}–${end}`;
+  }
+
+  // Hour-by-hour forecast for the date's actual game window, from its saved
+  // start/end time. Each slot is one clock hour [hour, hour + 1): Open-Meteo
+  // reports rain chance and conditions for the *preceding* hour (so they come
+  // from the hour+1 entry) and temperature as an instant (averaged across the
+  // hour). Returns null without a game time or hourly data for that window.
+  function gameTimeForecast(playDate) {
+    const hourly = weatherByDate.get(playDate)?.hourly;
+    if (!hourly) {
+      return null;
+    }
+    const { startTime, endTime } = getDateDetail(playDate);
+    let start = parseTimeOfDay(startTime);
+    let end = parseTimeOfDay(endTime);
+    if (!Number.isFinite(start) && !Number.isFinite(end)) {
+      return null;
+    }
+    if (!Number.isFinite(end)) {
+      end = start + DEFAULT_GAME_HOURS;
+    }
+    if (!Number.isFinite(start)) {
+      start = end - DEFAULT_GAME_HOURS;
+    }
+    if (end <= start) {
+      end += 24; // runs past midnight
+    }
+
+    const tempAt = (time) => {
+      const hour = Math.floor(time);
+      const a = hourly.get(hourKey(playDate, hour))?.temp;
+      const b = hourly.get(hourKey(playDate, hour + 1))?.temp;
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        return a + (b - a) * (time - hour);
+      }
+      return Number.isFinite(a) ? a : NaN;
+    };
+
+    const slots = [];
+    for (let hour = Math.floor(start); hour < end; hour += 1) {
+      const next = hourly.get(hourKey(playDate, hour + 1));
+      if (!next) {
+        continue;
+      }
+      slots.push({
+        hour,
+        // Clamp the slot to the game so spans read "8:30–9 PM", not "8–9 PM".
+        from: Math.max(hour, start),
+        to: Math.min(hour + 1, end),
+        temp: tempAt(hour + 0.5),
+        precip: next.precip,
+        code: next.code,
+        isNight: next.isDay === 0,
+      });
+    }
+    if (!slots.length) {
+      return null;
+    }
+    return { start, end, slots, kickoffTemp: tempAt(start), endTemp: tempAt(end) };
+  }
+
+  // One-line game-time summary, e.g. "Rain likely 9–10:30 PM (70%) · 11° at
+  // kickoff, 9° at the end", with the icon of the wettest (or first) hour.
+  // The span covers every hour with a real chance (>= 20%) so a 49% hour next
+  // to a 55% one isn't reported as dry; the peak picks "likely" vs "chance".
+  function summarizeGameTimeForecast(forecast) {
+    const { start, end, slots } = forecast;
+    const precips = slots.map((slot) => slot.precip).filter(Number.isFinite);
+    const maxPrecip = precips.length ? Math.max(...precips) : NaN;
+    let focus = slots[0];
+    let rain = "";
+    if (maxPrecip >= 20) {
+      const wet = slots.filter((slot) => slot.precip >= 20);
+      focus = wet.reduce((a, b) => (b.precip > a.precip ? b : a));
+      const from = wet[0].from;
+      const to = wet[wet.length - 1].to;
+      const when = from <= start && to >= end ? "during play" : formatClockSpan(from, to);
+      const varies = wet.some((slot) => Math.round(slot.precip) !== Math.round(maxPrecip));
+      const peak = `${varies ? "up to " : ""}${Math.round(maxPrecip)}%`;
+      rain = `${maxPrecip >= 50 ? "Rain likely" : "Chance of rain"} ${when} (${peak})`;
+    } else if (Number.isFinite(maxPrecip)) {
+      rain = maxPrecip > 0 ? `Likely dry (≤${Math.round(maxPrecip)}% rain)` : "Likely dry";
+    }
+    const temps = [];
+    if (Number.isFinite(forecast.kickoffTemp)) {
+      temps.push(`${Math.round(forecast.kickoffTemp)}° at kickoff`);
+    }
+    if (
+      Number.isFinite(forecast.endTemp) &&
+      Math.round(forecast.endTemp) !== Math.round(forecast.kickoffTemp)
+    ) {
+      temps.push(`${Math.round(forecast.endTemp)}° at the end`);
+    }
+    const [icon] = describeWeatherCode(focus.code, focus.isNight);
+    return { icon, text: [rain, temps.join(", ")].filter(Boolean).join(" · ") };
   }
 
   // Add or refresh the little weather line on each date chip. Runs after the
@@ -414,15 +566,30 @@
       longitude: String(lon),
       daily:
         "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+      hourly: "temperature_2m,precipitation_probability,weather_code,is_day",
       temperature_unit: "celsius",
       timezone: WEATHER_TIMEZONE,
       forecast_days: String(WEATHER_FORECAST_DAYS),
     });
     const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+    // Open-Meteo sends null for unknown values; Number(null) would be 0.
+    const num = (value) => (value === null || value === undefined ? NaN : Number(value));
     const promise = withTimeout(
       fetch(url, { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" })
         .then((response) => (response.ok ? response.json() : null))
         .then((data) => {
+          // Hourly slots keyed "YYYY-MM-DDTHH:00" (local to WEATHER_TIMEZONE),
+          // shared by every date at this coordinate.
+          const hourlyData = data?.hourly;
+          const hourly = new Map();
+          (Array.isArray(hourlyData?.time) ? hourlyData.time : []).forEach((time, index) => {
+            hourly.set(String(time), {
+              temp: num(hourlyData.temperature_2m?.[index]),
+              precip: num(hourlyData.precipitation_probability?.[index]),
+              code: num(hourlyData.weather_code?.[index]),
+              isDay: num(hourlyData.is_day?.[index]),
+            });
+          });
           const daily = data?.daily;
           const times = Array.isArray(daily?.time) ? daily.time : [];
           const byDate = new Map();
@@ -431,10 +598,11 @@
               return;
             }
             byDate.set(String(date), {
-              code: Number(daily.weather_code?.[index]),
-              high: Number(daily.temperature_2m_max?.[index]),
-              low: Number(daily.temperature_2m_min?.[index]),
-              precip: Number(daily.precipitation_probability_max?.[index]),
+              code: num(daily.weather_code?.[index]),
+              high: num(daily.temperature_2m_max?.[index]),
+              low: num(daily.temperature_2m_min?.[index]),
+              precip: num(daily.precipitation_probability_max?.[index]),
+              hourly,
             });
           });
           return byDate;
@@ -482,9 +650,11 @@
         });
         // Paint as each field resolves so weather appears progressively.
         decorateDateOptionsWithWeather();
+        updateDateInfo();
       }),
     );
     decorateDateOptionsWithWeather();
+    updateDateInfo();
   }
 
   function pickDefaultOpenDate() {
@@ -674,7 +844,49 @@
         dateInfoTimeText.textContent = timeLabel;
       }
     }
-    dateInfo.hidden = !(hasLocation || hasTime);
+    const hasWeather = renderGameTimeWeather(dateInput.value);
+    dateInfo.hidden = !(hasLocation || hasTime || hasWeather);
+  }
+
+  // Fill the game-time weather row in the date info box. Returns whether
+  // there was a forecast to show.
+  function renderGameTimeWeather(playDate) {
+    if (!dateInfoWeather) {
+      return false;
+    }
+    const forecast = gameTimeForecast(playDate);
+    dateInfoWeather.hidden = !forecast;
+    if (!forecast) {
+      dateInfoWeatherHours?.replaceChildren();
+      return false;
+    }
+    const summary = summarizeGameTimeForecast(forecast);
+    dateInfoWeatherIcon.textContent = summary.icon;
+    dateInfoWeatherText.textContent = summary.text;
+    dateInfoWeatherHours.replaceChildren(
+      ...forecast.slots.map((slot) => {
+        const [icon, condition] = describeWeatherCode(slot.code, slot.isNight);
+        const item = document.createElement("li");
+        const time = document.createElement("span");
+        const temp = document.createElement("span");
+        const rain = document.createElement("span");
+        time.className = "weather-hour-time";
+        temp.className = "weather-hour-temp";
+        rain.className = "weather-hour-rain";
+        time.textContent = formatClock(slot.hour);
+        temp.textContent = Number.isFinite(slot.temp)
+          ? `${icon} ${Math.round(slot.temp)}°`
+          : icon;
+        if (Number.isFinite(slot.precip)) {
+          rain.textContent = `☔ ${Math.round(slot.precip)}%`;
+          rain.classList.toggle("wet", slot.precip >= 50);
+        }
+        item.title = `${formatClockSpan(slot.hour, slot.hour + 1)}: ${condition}`;
+        item.append(time, temp, rain);
+        return item;
+      }),
+    );
+    return true;
   }
 
   // ?date=YYYY-MM-DD from a shared link, or "" when absent/invalid.
@@ -705,7 +917,12 @@
     if (place) {
       lines.push(`📍 ${place}`);
     }
-    const weather = weatherSummaryFor(playDate);
+    // Prefer the game-time forecast; fall back to the day's summary when the
+    // date has no time saved (or is beyond the hourly forecast).
+    const gameForecast = gameTimeForecast(playDate);
+    const weather = gameForecast
+      ? summarizeGameTimeForecast(gameForecast)
+      : weatherSummaryFor(playDate);
     if (weather) {
       lines.push(weather.text ? `${weather.icon} ${weather.text}` : weather.icon);
     }

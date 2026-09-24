@@ -1534,6 +1534,59 @@ body.is-admin .non-admin-only {
   text-decoration: underline;
 }
 
+.date-info-weather {
+  display: grid;
+  gap: 8px;
+}
+
+/* Keep the icon beside a long summary; only the text wraps. */
+.date-info p.date-info-weather-summary {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.weather-hours {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weather-hours li {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 66px;
+  padding: 6px 8px;
+  border: 1px solid #dbe6f3;
+  border-radius: 8px;
+  background: white;
+  color: #26364a;
+  font-size: 0.8rem;
+}
+
+.weather-hour-time {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.weather-hour-temp {
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.weather-hour-rain {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.weather-hour-rain.wet {
+  color: #1d4ed8;
+  font-weight: 800;
+}
+
 .date-lock-button {
   display: block;
   margin: 6px auto 0;
