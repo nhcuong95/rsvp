@@ -35,7 +35,7 @@
       content="https://nhcuong95.github.io/rsvp/assets/social-preview.png?v=2"
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260923-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260923-3" />
   </head>
   <body>
     <main class="shell">
@@ -122,7 +122,7 @@
           <div id="admin-lock-bar" class="admin-lock-bar" hidden>
             <div class="admin-lock-copy">
               <span id="admin-lock-status" class="admin-lock-status">Unlocked</span>
-              <small>Admin only · pick a date (incl. "Other date"), set the field &amp; time, add it to the RSVP list, then lock it after you book.</small>
+              <small>Admin only · pick a date (incl. "Other date"), set the field, time &amp; max players, add it to the RSVP list, then lock it after you book.</small>
             </div>
             <div class="admin-date-details">
               <label class="admin-date-field">
@@ -141,8 +141,20 @@
                 <span>End time</span>
                 <select id="admin-end-time"></select>
               </label>
+              <label class="admin-date-field">
+                <span>Max players (incl. guests)</span>
+                <input
+                  id="admin-capacity"
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputmode="numeric"
+                  placeholder="No limit"
+                  autocomplete="off"
+                />
+              </label>
               <button id="admin-save-date-details" class="admin-lock-toggle" type="button">
-                Save field &amp; time
+                Save date details
               </button>
             </div>
             <div class="admin-lock-actions">
@@ -194,6 +206,14 @@
             </button>
           </div>
           <ul id="tally-list" class="tally-list"></ul>
+          <div id="waitlist-section" class="waitlist-section" hidden>
+            <div class="tally-header">
+              <h3 id="waitlist-title">Waitlist</h3>
+              <p id="waitlist-count"></p>
+            </div>
+            <p class="waitlist-note">Moves up automatically, in order, when a spot opens.</p>
+            <ol id="waitlist-list" class="tally-list waitlist-list"></ol>
+          </div>
         </section>
 
       </section>
@@ -226,6 +246,6 @@
 
     <script src="./admin-auth.js?v=20260915-1"></script>
     <script src="./rsvp-rules.js?v=20260626-1"></script>
-    <script src="./app.js?v=20260923-1"></script>
+    <script src="./app.js?v=20260923-2"></script>
   </body>
 </html>

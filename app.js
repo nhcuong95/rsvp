@@ -88,6 +88,9 @@
   const tallyTitle = document.querySelector("#tally-title");
   const tallyCount = document.querySelector("#tally-count");
   const tallyList = document.querySelector("#tally-list");
+  const waitlistSection = document.querySelector("#waitlist-section");
+  const waitlistCount = document.querySelector("#waitlist-count");
+  const waitlistList = document.querySelector("#waitlist-list");
   const shareActions = document.querySelector("#share-actions");
   const shareDateButton = document.querySelector("#share-date-button");
   const copyInviteButton = document.querySelector("#copy-invite-button");
@@ -99,6 +102,7 @@
   const adminAddress = document.querySelector("#admin-address");
   const adminStartTime = document.querySelector("#admin-start-time");
   const adminEndTime = document.querySelector("#admin-end-time");
+  const adminCapacity = document.querySelector("#admin-capacity");
   const adminSaveDateDetails = document.querySelector("#admin-save-date-details");
   const dateInfo = document.querySelector("#date-info");
   const dateInfoLocation = document.querySelector("#date-info-location");
@@ -787,9 +791,16 @@
           address: String(entry.address || "").trim(),
           startTime: String(entry.startTime || "").trim(),
           endTime: String(entry.endTime || "").trim(),
+          capacity: parseCapacity(entry.capacity),
         });
       }
     });
+  }
+
+  // Max spots for a date as a positive whole number, or null for no limit.
+  function parseCapacity(value) {
+    const count = Math.trunc(Number(value));
+    return Number.isFinite(count) && count > 0 ? count : null;
   }
 
   function getDateDetail(playDate) {
@@ -799,6 +810,7 @@
         address: "",
         startTime: "",
         endTime: "",
+        capacity: null,
       }
     );
   }
@@ -927,10 +939,18 @@
       lines.push(weather.text ? `${weather.icon} ${weather.text}` : weather.icon);
     }
     if (lastTally && lastTally.date === playDate) {
-      const going =
-        lastTally.totalCount > 0
-          ? `👥 ${lastTally.totalCount} going`
-          : "👥 No one yet. Be the first!";
+      const { totalCount, capacity, waitlistCount } = lastTally;
+      let going =
+        totalCount > 0 ? `👥 ${totalCount} going` : "👥 No one yet. Be the first!";
+      if (capacity !== null) {
+        const left = capacity - totalCount;
+        going = `👥 ${totalCount}/${capacity} going · ${
+          left > 0 ? `${left} ${left === 1 ? "spot" : "spots"} left` : "Full"
+        }`;
+        if (waitlistCount > 0) {
+          going += ` · ${waitlistCount} on waitlist`;
+        }
+      }
       lines.push(lastTally.locked ? `${going} · 🔒 Locked` : going);
     }
     lines.push(`Vote here: ${buildDateLink(playDate)}`);
@@ -1048,7 +1068,7 @@
   // Keep the admin inputs in sync with the selected date, unless the admin is
   // actively editing a text field (don't clobber mid-typing).
   function prefillAdminDateDetails() {
-    const { fieldName, address, startTime, endTime } = getDateDetail(dateInput.value);
+    const { fieldName, address, startTime, endTime, capacity } = getDateDetail(dateInput.value);
     if (adminFieldName && document.activeElement !== adminFieldName) {
       adminFieldName.value = fieldName;
     }
@@ -1061,13 +1081,32 @@
     if (adminEndTime) {
       adminEndTime.value = endTime;
     }
+    if (adminCapacity && document.activeElement !== adminCapacity) {
+      adminCapacity.value = capacity === null ? "" : String(capacity);
+    }
   }
 
   function canSelectNotGoing(playDate) {
     // A date is only closed to drop-outs when the admin has manually locked it.
     // The lock flag arrives with the tally; unknown dates default to open, and
-    // the server is the final authority on submit.
-    return !playDate || dateLockCache.get(playDate) !== true;
+    // the server is the final authority on submit. Waitlisted players hold no
+    // spot, so they can always leave.
+    return (
+      !playDate ||
+      dateLockCache.get(playDate) !== true ||
+      isPlayerWaitlisted(playDate, selectedPlayerName)
+    );
+  }
+
+  // Whether the latest tally for this date has the player on the waitlist.
+  function isPlayerWaitlisted(playDate, playerName) {
+    const name = String(playerName || "").trim().toLowerCase();
+    return Boolean(
+      name &&
+        lastTally &&
+        lastTally.date === playDate &&
+        lastTally.waitlistNames.includes(name),
+    );
   }
 
   function requestAdminLock(payload) {
@@ -1179,6 +1218,12 @@
     const address = (adminAddress?.value || "").trim();
     const startTime = (adminStartTime?.value || "").trim();
     const endTime = (adminEndTime?.value || "").trim();
+    const capacityText = (adminCapacity?.value || "").trim();
+    const capacity = parseCapacity(capacityText);
+    if (capacityText && (capacity === null || String(capacity) !== capacityText)) {
+      setStatus("Max players must be a whole number, or blank for no limit.", "error");
+      return;
+    }
     const originalLabel = adminSaveDateDetails.textContent;
     adminSaveDateDetails.disabled = true;
     adminSaveDateDetails.textContent = "Saving...";
@@ -1191,11 +1236,12 @@
         address,
         startTime,
         endTime,
+        capacity: capacityText,
       });
       if (result.dateDetails) {
         setDateDetails(result.dateDetails);
       } else {
-        dateDetailsByDate.set(playDate, { fieldName, address, startTime, endTime });
+        dateDetailsByDate.set(playDate, { fieldName, address, startTime, endTime, capacity });
       }
       if (Array.isArray(result.dates)) {
         openDates = result.dates
@@ -1206,7 +1252,15 @@
       updateDateInfo();
       // The field/address may have changed, so refresh this date's forecast.
       loadWeather();
-      setStatus("Field and time saved.", "success");
+      // A new limit can change who is in (and the "x/y spots" header).
+      loadTally(playDate);
+      const promoted = Array.isArray(result.promoted) ? result.promoted : [];
+      setStatus(
+        promoted.length
+          ? `Saved. Moved up from the waitlist: ${promoted.join(", ")}.`
+          : "Date details saved.",
+        "success",
+      );
     } catch (error) {
       setStatus(error.message, "error");
     } finally {
@@ -1491,6 +1545,7 @@
   function selectPlayerName(name, options) {
     playerInput.value = name;
     selectedPlayerName = name;
+    renderParticipantOptions();
     updatePlayerMemory();
     hidePlayerList();
     if (!options?.keepFocus) {
@@ -1981,6 +2036,8 @@
       selectedPlayerName = payload.playerName;
       updatePlayerMemory();
       renderTally(result.tally);
+      // Joining or leaving the waitlist changes whether "Not going" applies.
+      renderParticipantOptions();
       if (result.action === "deleted") {
         setRemoveRsvpAction(null);
         setStatus("Removed your RSVP.", "success");
@@ -1989,12 +2046,7 @@
         setStatus("No RSVP was on file for that date.", "");
       } else {
         setRemoveRsvpAction(payload);
-        setStatus(
-          result.action === "updated"
-            ? "Updated your existing RSVP."
-            : "RSVP submitted.",
-          "success",
-        );
+        setStatus(describeRsvpResult(result, payload.playDate), "success");
       }
     } catch (error) {
       if (error.message === "Could not reach Apps Script") {
@@ -2011,6 +2063,22 @@
     } finally {
       submitButton.disabled = false;
     }
+  }
+
+  // Success message for a submit, including waitlist status when the date has
+  // a limit (older backends send no status: fall back to the plain wording).
+  function describeRsvpResult(result, playDate) {
+    const updated = result.action === "updated";
+    if (result.status === "waitlisted") {
+      const place = result.waitlistPosition ? ` #${result.waitlistPosition}` : "";
+      return updated
+        ? `Updated. You're still${place} on the waitlist.`
+        : `The game is full, so you're${place} on the waitlist. You'll move up automatically if a spot opens.`;
+    }
+    if (result.status === "confirmed" && getDateDetail(playDate).capacity !== null) {
+      return updated ? "Updated. You're in!" : "RSVP submitted. You're in!";
+    }
+    return updated ? "Updated your existing RSVP." : "RSVP submitted.";
   }
 
   async function removeExistingRsvp(payload) {
@@ -2057,10 +2125,16 @@
   function renderTally(tally) {
     const players = Array.isArray(tally?.players) ? tally.players : [];
     const totalCount = Number(tally?.totalCount || 0);
+    // Older backends send no waitlist; treat that as an empty line.
+    const waitlist = Array.isArray(tally?.waitlist) ? tally.waitlist : [];
+    const capacity = getDateDetail(dateInput.value).capacity;
     lastTally = {
       date: dateInput.value,
       totalCount,
       locked: Boolean(tally?.locked),
+      capacity,
+      waitlistCount: Number(tally?.waitlistCount || 0),
+      waitlistNames: waitlist.map((player) => String(player.name || "").trim().toLowerCase()),
     };
 
     if (tallyTitle) {
@@ -2069,11 +2143,15 @@
         : "Joining this date";
     }
 
-    const base =
+    let base =
       totalCount > 0
         ? formatParticipantCount(totalCount)
         : "No reservations yet";
+    if (capacity !== null) {
+      base = `${totalCount}/${capacity} spots${totalCount >= capacity ? " · Full" : ""}`;
+    }
     tallyCount.textContent = tally?.locked ? `${base} · 🔒 Locked` : base;
+    renderWaitlist(waitlist);
 
     tallyList.replaceChildren(
       ...players.map((player) => {
@@ -2093,6 +2171,33 @@
     );
   }
 
+  function renderWaitlist(waitlist) {
+    if (!waitlistSection) {
+      return;
+    }
+    waitlistSection.hidden = waitlist.length === 0;
+    const spots = waitlist.reduce(
+      (sum, player) => sum + Math.max(1, Number(player.participantCount || 1)),
+      0,
+    );
+    waitlistCount.textContent = formatParticipantCount(spots);
+    waitlistList.replaceChildren(
+      ...waitlist.map((player, index) => {
+        const item = document.createElement("li");
+        const name = document.createElement("span");
+        const participants = document.createElement("span");
+        name.className = "tally-name";
+        participants.className = "tally-participants";
+        name.textContent = `${index + 1}. ${player.name}`;
+        participants.textContent = formatParticipantCount(
+          Math.max(1, Number(player.participantCount || 1)),
+        );
+        item.append(name, participants);
+        return item;
+      }),
+    );
+  }
+
   async function loadTally(playDate, attempt) {
     if (!playDate || !APPS_SCRIPT_URL) {
       return;
@@ -2104,6 +2209,7 @@
     try {
       tallyCount.textContent = "Loading reservations...";
       tallyList.replaceChildren();
+      renderWaitlist([]);
       tallySection?.setAttribute("aria-busy", "true");
       const result = await requestAppsScript({
         action: "list",

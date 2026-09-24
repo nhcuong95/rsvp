@@ -18,7 +18,13 @@ const OPEN_DATES_HEADERS = [
   "Address",
   "Start Time",
   "End Time",
+  // Max spots (guests included) for the date. Blank = no limit / no waitlist.
+  "Capacity",
 ];
+// Vote value the RSVP backend stores for an RSVP that did not fit under the
+// date's Capacity. Billing, the report, and the admin tally count only "Yes",
+// so waitlisted players are never charged.
+const WAITLIST_VOTE = "Waitlist";
 const EXPORT_SPREADSHEET_ID = "1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ";
 const PREVIEW_MAX_ROWS = 120;
 const PREVIEW_MAX_COLUMNS = 80;
@@ -298,6 +304,8 @@ function doGet(event) {
         address: result.address,
         startTime: result.startTime,
         endTime: result.endTime,
+        capacity: result.capacity,
+        promoted: result.promoted,
         dates: result.dates,
         dateDetails: result.dateDetails,
       });
@@ -892,12 +900,76 @@ function getOpenDatesDetailed_() {
         address: sanitizeText_(row[4] || ""),
         startTime: formatTimeCellValue_(row[5]),
         endTime: formatTimeCellValue_(row[6]),
+        capacity: parseCapacity_(row[7]),
       };
     }
   });
   return Object.keys(byDate)
     .sort()
     .map((date) => byDate[date]);
+}
+
+// A positive whole number of spots, or null for "no limit".
+function parseCapacity_(value) {
+  const count = Math.trunc(Number(value));
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
+
+// After an admin raises or removes a date's Capacity, let waiting players in:
+// sign-up order ("Submitted At", kept across edits), skipping RSVPs too big
+// for the spots left — the same rule the RSVP backend uses on drop-outs.
+// Admin attendance edits deliberately do NOT promote, so a post-game
+// correction never pulls an unbilled waitlisted player into the game.
+// Returns the promoted players' names.
+function promoteWaitlistForDate_(playDate, capacity) {
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+  const rosterNameSet = getRosterNameSet_();
+  const entries = sheet
+    .getRange(2, 1, lastRow - 1, HEADERS.length)
+    .getValues()
+    .map((values, index) => ({ rowNumber: index + 2, values }))
+    .filter((entry) => (
+      normalizeDate_(entry.values[0]) === playDate &&
+      isRosterPlayer_(String(entry.values[1] || "").trim(), rosterNameSet)
+    ));
+  const confirmed = entries
+    .filter((entry) => normalize_(entry.values[2]) === "yes")
+    .reduce((sum, entry) => sum + clampStoredParticipantCount_(entry.values[3]), 0);
+  let open = capacity === null ? Infinity : capacity - confirmed;
+  const signupTime = (entry) => {
+    const value = entry.values[4];
+    const time = Object.prototype.toString.call(value) === "[object Date]"
+      ? value.getTime()
+      : Date.parse(String(value || ""));
+    return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
+  };
+  const promoted = [];
+  entries
+    .filter((entry) => normalize_(entry.values[2]) === normalize_(WAITLIST_VOTE))
+    .sort((first, second) => (
+      signupTime(first) - signupTime(second) || first.rowNumber - second.rowNumber
+    ))
+    .forEach((entry) => {
+      const count = clampStoredParticipantCount_(entry.values[3]);
+      if (count > open) {
+        return;
+      }
+      open -= count;
+      sheet.getRange(entry.rowNumber, 3).setValue("Yes");
+      const playerName = String(entry.values[1] || "").trim();
+      promoted.push(playerName);
+      appendAuditLog_(
+        { playDate, playerName, participantCount: count },
+        "promoted_from_waitlist",
+        entry.rowNumber,
+        null,
+      );
+    });
+  return promoted;
 }
 
 // Sheets can store a picked time ("8:00 PM") as a datetime value, which reads
@@ -992,6 +1064,14 @@ function savePlayDateDetails_(params) {
     const address = sanitizeText_(params.address || "");
     const startTime = sanitizeText_(params.startTime || "");
     const endTime = sanitizeText_(params.endTime || "");
+    // Older front-ends don't send capacity: leave the saved one alone then.
+    // Blank clears the limit; anything else must be a whole number >= 1.
+    const capacityProvided = params.capacity !== undefined;
+    const capacityText = String(params.capacity || "").trim();
+    const capacity = parseCapacity_(capacityText);
+    if (capacityProvided && capacityText && capacity === null) {
+      throw new Error("Max players must be a whole number (or blank for no limit)");
+    }
     const sheet = getOpenDatesSheet_();
     let row = findOpenDateRow_(sheet, playDate);
     if (!row) {
@@ -1003,18 +1083,28 @@ function savePlayDateDetails_(params) {
         address,
         startTime,
         endTime,
+        capacityProvided && capacity !== null ? capacity : "",
       ]);
     } else {
       sheet.getRange(row, 4, 1, 4).setValues([[fieldName, address, startTime, endTime]]);
+      if (capacityProvided) {
+        sheet.getRange(row, 8).setValue(capacity === null ? "" : capacity);
+      }
     }
+    // A higher (or removed) limit opens spots for the waitlist right away.
+    const promoted = capacityProvided ? promoteWaitlistForDate_(playDate, capacity) : [];
+    const dateDetails = getOpenDatesDetailed_();
+    const saved = dateDetails.find((entry) => entry.date === playDate);
     return {
       playDate,
       fieldName,
       address,
       startTime,
       endTime,
+      capacity: saved ? saved.capacity : null,
+      promoted,
       dates: getOpenDates_(),
-      dateDetails: getOpenDatesDetailed_(),
+      dateDetails,
     };
   } finally {
     lock.releaseLock();

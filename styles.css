@@ -1992,6 +1992,31 @@ body.is-admin .non-admin-only {
   line-height: 1.2;
 }
 
+.waitlist-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line-strong);
+}
+
+.waitlist-section h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.tally .waitlist-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: normal;
+}
+
+/* Beats the later .tally-list li rule: waiting players look provisional. */
+.tally-list.waitlist-list li {
+  border-style: dashed;
+  background: transparent;
+}
+
 .share-actions {
   display: flex;
   flex-wrap: wrap;
