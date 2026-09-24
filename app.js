@@ -2311,6 +2311,10 @@
     if (capacity !== null) {
       base = `${totalCount}/${capacity} spots${totalCount >= capacity ? " · Full" : ""}`;
     }
+    const withdrawCount = lastTally.withdrawNames.length;
+    if (withdrawCount > 0) {
+      base += ` · ${withdrawCount} withdraw ${withdrawCount === 1 ? "request" : "requests"}`;
+    }
     tallyCount.textContent = locked ? `${base} · 🔒 Locked` : base;
     renderWaitlist(waitlist);
 
