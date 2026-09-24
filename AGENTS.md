@@ -71,5 +71,5 @@ Solo repo (`origin` = `github.com/nhcuong95/rsvp.git`), commits go straight to
 `main`. End commit messages with:
 
 ```
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ```
