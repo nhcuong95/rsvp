@@ -104,6 +104,10 @@ class FakeSpreadsheet {
     this.sheets[name] = new FakeSheet(name);
     return this.sheets[name];
   }
+
+  getSheets() {
+    return Object.values(this.sheets);
+  }
 }
 
 // Load a Code.gs file into its own sandbox bound to `spreadsheet`.

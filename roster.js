@@ -18,6 +18,24 @@
   const status = document.querySelector("#status");
   const memberCount = document.querySelector("#member-count");
   const memberTable = document.querySelector("#member-table");
+  const positionsPlayer = document.querySelector("#positions-player");
+  const positionGrid = document.querySelector("#position-grid");
+  const positionsSave = document.querySelector("#positions-save");
+  const positionsStatus = document.querySelector("#positions-status");
+  // Same key the RSVP page uses to remember who you are.
+  const LAST_PLAYER_KEY = "play-rsvp.lastPlayerName";
+  const FIELD_POSITIONS = [
+    ["GK", "Goalkeeper"],
+    ["LB", "Left back"],
+    ["CB", "Center back"],
+    ["RB", "Right back"],
+    ["CM", "Center mid"],
+    ["LW", "Left wing"],
+    ["RW", "Right wing"],
+    ["ST", "Striker"],
+  ];
+  let positionPlayers = []; // [{ name, positions: ["CB", ...] }] — anyone
+  let positionScores = new Map(); // normalized name -> { CB: 8, ... } — admin only
   let roster = [];
   let adminToken = "";
   let editingOriginalName = "";
@@ -175,6 +193,7 @@
   }
 
   function fillForm(member, options) {
+    selectPositionsPlayer(member.name);
     editingOriginalName = member.name || "";
     nameInput.value = member.name || "";
     // Only admins see existing contact values pre-filled. For members the
@@ -706,9 +725,196 @@
     renderRoster();
   });
 
+  // ---- Favorite positions (anyone) + per-position scores (admins) ----
+
+  function setPositionsStatus(message, type) {
+    positionsStatus.textContent = message;
+    positionsStatus.className = `status ${type || ""}`.trim();
+  }
+
+  function buildPositionGrid() {
+    positionGrid.replaceChildren(
+      ...FIELD_POSITIONS.map(([code, label]) => {
+        const tile = document.createElement("div");
+        const toggle = document.createElement("label");
+        const checkbox = document.createElement("input");
+        const codeText = document.createElement("strong");
+        const labelText = document.createElement("small");
+        const score = document.createElement("input");
+
+        tile.className = "position-tile";
+        tile.dataset.position = code;
+        toggle.className = "position-toggle";
+        checkbox.type = "checkbox";
+        checkbox.value = code;
+        checkbox.addEventListener("change", () => {
+          tile.classList.toggle("selected", checkbox.checked);
+        });
+        codeText.textContent = code;
+        labelText.textContent = label;
+        toggle.append(checkbox, codeText, labelText);
+
+        score.className = "position-score admin-only";
+        score.type = "number";
+        score.min = "1";
+        score.max = "10";
+        score.step = "1";
+        score.inputMode = "numeric";
+        score.placeholder = "–";
+        score.setAttribute("aria-label", `${label} score, 1 to 10`);
+        tile.append(toggle, score);
+        return tile;
+      }),
+    );
+  }
+
+  function findPositionPlayer(name) {
+    const normalizedName = normalizeSearchText(name);
+    return positionPlayers.find((player) => normalizeSearchText(player.name) === normalizedName);
+  }
+
+  function selectPositionsPlayer(name) {
+    const player = findPositionPlayer(name);
+    if (player) {
+      positionsPlayer.value = player.name;
+      renderPositionsCard();
+    }
+  }
+
+  function renderPositionsCard() {
+    const player = findPositionPlayer(positionsPlayer.value);
+    const favorites = player ? player.positions : [];
+    const scores = (player && positionScores.get(normalizeSearchText(player.name))) || {};
+    positionGrid.querySelectorAll(".position-tile").forEach((tile) => {
+      const code = tile.dataset.position;
+      const checkbox = tile.querySelector("input[type=checkbox]");
+      checkbox.checked = favorites.includes(code);
+      checkbox.disabled = !player;
+      tile.classList.toggle("selected", checkbox.checked);
+      const score = tile.querySelector(".position-score");
+      score.value = adminToken && code in scores ? String(scores[code]) : "";
+      score.disabled = !player || !adminToken;
+    });
+    positionsSave.disabled = !player;
+    positionsSave.textContent = adminToken ? "Save positions & scores" : "Save positions";
+  }
+
+  function renderPositionsPlayerOptions() {
+    const current = positionsPlayer.value || localStorage.getItem(LAST_PLAYER_KEY) || "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose your name";
+    positionsPlayer.replaceChildren(
+      placeholder,
+      ...positionPlayers.map((player) => {
+        const option = document.createElement("option");
+        option.value = player.name;
+        option.textContent = player.name;
+        return option;
+      }),
+    );
+    const match = findPositionPlayer(current);
+    positionsPlayer.value = match ? match.name : "";
+    renderPositionsCard();
+  }
+
+  async function loadPositions() {
+    try {
+      const result = await requestAppsScript({ action: "listPlayerPositions" });
+      positionPlayers = Array.isArray(result.players) ? result.players : [];
+      positionScores = new Map();
+      if (adminToken) {
+        const scored = await requestAppsScript({ action: "listPlayerScores", adminToken });
+        (Array.isArray(scored.players) ? scored.players : []).forEach((player) => {
+          positionScores.set(normalizeSearchText(player.name), player.scores || {});
+        });
+      }
+      renderPositionsPlayerOptions();
+    } catch (error) {
+      positionsPlayer.replaceChildren(new Option("Could not load players", ""));
+      setPositionsStatus(error.message, "error");
+    }
+  }
+
+  // Admin score inputs -> { CB: 8, ... }; throws on anything but 1–10.
+  function readScoreInputs() {
+    const scores = {};
+    positionGrid.querySelectorAll(".position-tile").forEach((tile) => {
+      const text = tile.querySelector(".position-score").value.trim();
+      if (!text) {
+        return;
+      }
+      const score = Number(text);
+      if (!Number.isInteger(score) || score < 1 || score > 10) {
+        throw new Error(`${tile.dataset.position} score must be a whole number from 1 to 10.`);
+      }
+      scores[tile.dataset.position] = score;
+    });
+    return scores;
+  }
+
+  async function savePositions() {
+    const player = findPositionPlayer(positionsPlayer.value);
+    if (!player) {
+      setPositionsStatus("Choose your name first.", "error");
+      return;
+    }
+    const positions = [...positionGrid.querySelectorAll("input[type=checkbox]:checked")]
+      .map((checkbox) => checkbox.value);
+    let scores = null;
+    try {
+      scores = adminToken ? readScoreInputs() : null;
+    } catch (error) {
+      setPositionsStatus(error.message, "error");
+      return;
+    }
+    positionsSave.disabled = true;
+    setPositionsStatus("Saving...", "");
+    try {
+      const saved = await requestAppsScript({
+        action: "savePlayerPositions",
+        playerName: player.name,
+        positions: positions.join(","),
+      });
+      player.positions = Array.isArray(saved.positions) ? saved.positions : positions;
+      if (scores) {
+        const scored = await requestAppsScript({
+          action: "savePlayerScores",
+          adminToken,
+          playerName: player.name,
+          scores: JSON.stringify(scores),
+        });
+        positionScores.set(normalizeSearchText(player.name), scored.scores || scores);
+      }
+      // A player saving their own positions: remember who they are (as the
+      // RSVP page does). Admins edit other people, so don't overwrite theirs.
+      if (!adminToken) {
+        localStorage.setItem(LAST_PLAYER_KEY, player.name);
+      }
+      renderPositionsCard();
+      const summary = player.positions.length ? player.positions.join(", ") : "none";
+      setPositionsStatus(
+        scores ? `Saved ${player.name}: ${summary} (scores updated).` : `Saved your positions: ${summary}.`,
+        "success",
+      );
+    } catch (error) {
+      setPositionsStatus(error.message, "error");
+    } finally {
+      positionsSave.disabled = !findPositionPlayer(positionsPlayer.value);
+    }
+  }
+
+  buildPositionGrid();
+  positionsPlayer.addEventListener("change", () => {
+    setPositionsStatus("", "");
+    renderPositionsCard();
+  });
+  positionsSave.addEventListener("click", savePositions);
+
   function handleAdminStateChange(state) {
     adminToken = state.token || "";
     renderAdminState();
+    loadPositions();
     // Member management (and the contact data it loads) is admin-only. Only
     // fetch the roster when logged in as admin; otherwise keep it empty.
     if (adminToken) {

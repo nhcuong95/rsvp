@@ -97,6 +97,14 @@
   const shareActions = document.querySelector("#share-actions");
   const shareDateButton = document.querySelector("#share-date-button");
   const copyInviteButton = document.querySelector("#copy-invite-button");
+  const makeTeamsButton = document.querySelector("#make-teams-button");
+  const teamsPanel = document.querySelector("#teams-panel");
+  const teamsSummary = document.querySelector("#teams-summary");
+  const teamsNote = document.querySelector("#teams-note");
+  const teamsList = document.querySelector("#teams-list");
+  const teamsReshuffle = document.querySelector("#teams-reshuffle");
+  const teamsCopy = document.querySelector("#teams-copy");
+  const teamsClose = document.querySelector("#teams-close");
   const adminLockBar = document.querySelector("#admin-lock-bar");
   const adminLockStatus = document.querySelector("#admin-lock-status");
   const adminLockToggle = document.querySelector("#admin-lock-toggle");
@@ -135,6 +143,8 @@
   let pendingLinkedDate = readLinkedDate();
   // Headcount of the most recently rendered tally, for the share invite.
   let lastTally = null;
+  // The admin's latest team split: { date, players, result }.
+  let lastTeams = null;
   let openDates = [];
   let rememberedPlayerName = "";
   let selectedPlayerName = "";
@@ -963,6 +973,9 @@
   // Share buttons only make sense for an open date: a link to any other date
   // would not preselect anything.
   function updateShareActions() {
+    if (lastTeams && lastTeams.date !== dateInput.value) {
+      hideTeams();
+    }
     if (shareActions) {
       shareActions.hidden = !openDates.includes(dateInput.value);
     }
@@ -1006,6 +1019,183 @@
     }
     textarea.remove();
     return copied;
+  }
+
+  // ---- Balanced teams (admin only; see team-builder.js) ----
+
+  function hideTeams() {
+    lastTeams = null;
+    if (teamsPanel) {
+      teamsPanel.hidden = true;
+    }
+  }
+
+  function setTeamsNote(lines) {
+    teamsNote.replaceChildren(...lines.flatMap((line, index) =>
+      (index ? [document.createElement("br"), line] : [line])));
+    teamsNote.hidden = lines.length === 0;
+  }
+
+  // Confirmed players for the builder (pending withdraw requests left out),
+  // with each "Me + N" guest as "Anh's guest" on the host's team. Favorite
+  // positions are public; scores come from the admin-only scores list.
+  async function collectTeamPlayers(playDate) {
+    const [positionList, scoreList] = await Promise.all([
+      requestAdminLock({ action: "listPlayerPositions" }),
+      requestAdminLock({ action: "listPlayerScores", adminToken }),
+    ]);
+    const byName = (list, key) => new Map(
+      (Array.isArray(list.players) ? list.players : [])
+        .map((player) => [String(player.name || "").trim().toLowerCase(), player[key]]),
+    );
+    const favorites = byName(positionList, "positions");
+    const scores = byName(scoreList, "scores");
+    const confirmed = Array.isArray(lastTally?.raw?.players) ? lastTally.raw.players : [];
+    const players = [];
+    const leftOut = [];
+    const unscored = [];
+    const noPositions = [];
+    confirmed.forEach((entry) => {
+      const name = String(entry.name || "").trim();
+      const key = name.toLowerCase();
+      if (entry.withdrawRequested) {
+        leftOut.push(name);
+        return;
+      }
+      const playerScores = scores.get(key) || {};
+      const playerFavorites = favorites.get(key) || [];
+      if (!Object.keys(playerScores).length) {
+        unscored.push(name);
+      }
+      if (!playerFavorites.length) {
+        noPositions.push(name);
+      }
+      players.push({ name, favorites: playerFavorites, scores: playerScores });
+      const guests = Math.max(1, Number(entry.participantCount || 1)) - 1;
+      for (let guest = 1; guest <= guests; guest += 1) {
+        players.push({ name: `${name}'s guest${guests > 1 ? ` ${guest}` : ""}`, guestOf: name });
+      }
+    });
+    return { date: playDate, players, leftOut, unscored, noPositions };
+  }
+
+  function renderTeams() {
+    const { result, players, leftOut, unscored, noPositions, date } = lastTeams;
+    const sizes = result.teams.map((team) => team.lineup.length + team.subs.length);
+    teamsSummary.textContent =
+      `${players.length} players · ${result.teams.length} teams (${sizes.join(" / ")})` +
+      ` · ratings within ${result.spread.toFixed(1)}`;
+    const notes = [];
+    if (!lastTally?.locked) {
+      notes.push(`${formatShortDisplayDate(date)} isn't locked yet, so sign-ups may still change.`);
+    }
+    if (leftOut.length) {
+      notes.push(`Left out (withdraw requested): ${leftOut.join(", ")}.`);
+    }
+    if (unscored.length) {
+      notes.push(`No scores yet (count as the group average): ${unscored.join(", ")}.`);
+    }
+    if (noPositions.length) {
+      notes.push(`No favorite positions (placed anywhere): ${noPositions.join(", ")}.`);
+    }
+    setTeamsNote(notes);
+
+    teamsList.replaceChildren(
+      ...result.teams.map((team) => {
+        const card = document.createElement("section");
+        const heading = document.createElement("h4");
+        const rating = document.createElement("span");
+        const lineup = document.createElement("ol");
+        card.className = "team-card";
+        heading.textContent = `${team.emoji} ${team.name}`;
+        rating.className = "team-rating";
+        // Admin-only panel: ratings are never part of the copied text.
+        rating.textContent = `avg ${team.rating.toFixed(1)}`;
+        heading.append(" ", rating);
+        lineup.className = "team-lineup";
+        team.lineup.forEach((slot) => {
+          const item = document.createElement("li");
+          const position = document.createElement("span");
+          position.className = "team-position";
+          position.textContent = slot.position;
+          item.append(position, ` ${slot.player.name}`);
+          if (slot.player.favorites && !slot.player.favorites.includes(slot.position) && slot.player.favorites.length) {
+            item.classList.add("off-position");
+            item.title = `Prefers ${slot.player.favorites.join(", ")}`;
+          }
+          lineup.append(item);
+        });
+        card.append(heading, lineup);
+        if (team.borrowsGoalkeeper) {
+          const note = document.createElement("p");
+          note.className = "team-extra";
+          note.textContent = "GK rotates in from the resting team.";
+          card.append(note);
+        }
+        if (team.subs.length) {
+          const subs = document.createElement("p");
+          subs.className = "team-extra";
+          subs.textContent = `Subs: ${team.subs.map((player) => player.name).join(", ")}`;
+          card.append(subs);
+        }
+        return card;
+      }),
+    );
+    teamsPanel.hidden = false;
+  }
+
+  async function makeTeams() {
+    const playDate = dateInput.value;
+    if (!window.TeamBuilder || !adminToken || !lastTally || lastTally.date !== playDate) {
+      return;
+    }
+    makeTeamsButton.disabled = true;
+    teamsPanel.hidden = false;
+    teamsSummary.textContent = "Loading positions and scores...";
+    setTeamsNote([]);
+    teamsList.replaceChildren();
+    try {
+      const collected = await collectTeamPlayers(playDate);
+      if (dateInput.value !== playDate) {
+        return;
+      }
+      const result = window.TeamBuilder.buildTeams(collected.players);
+      if (!result) {
+        teamsSummary.textContent = "Need at least 2 players to make teams.";
+        return;
+      }
+      lastTeams = { ...collected, result };
+      renderTeams();
+    } catch (error) {
+      teamsSummary.textContent = error.message;
+    } finally {
+      makeTeamsButton.disabled = false;
+    }
+  }
+
+  function reshuffleTeams() {
+    if (!lastTeams) {
+      return;
+    }
+    lastTeams.result = window.TeamBuilder.buildTeams(lastTeams.players, {
+      avoidSignature: lastTeams.result.signature,
+    });
+    renderTeams();
+  }
+
+  async function copyTeams() {
+    if (!lastTeams) {
+      return;
+    }
+    const text = window.TeamBuilder.formatTeams(
+      lastTeams.result,
+      formatShortDisplayDate(lastTeams.date),
+    );
+    if (await copyText(text)) {
+      flashButtonLabel(teamsCopy, "✓ Copied");
+    } else {
+      window.prompt("Copy these teams:", text);
+    }
   }
 
   async function copyInvite() {
@@ -2495,6 +2685,13 @@
     }
     if (copyInviteButton) {
       copyInviteButton.addEventListener("click", copyInvite);
+    }
+    if (makeTeamsButton) {
+      makeTeamsButton.hidden = !window.TeamBuilder;
+      makeTeamsButton.addEventListener("click", makeTeams);
+      teamsReshuffle.addEventListener("click", reshuffleTeams);
+      teamsCopy.addEventListener("click", copyTeams);
+      teamsClose.addEventListener("click", hideTeams);
     }
 
     if (adminLockToggle) {

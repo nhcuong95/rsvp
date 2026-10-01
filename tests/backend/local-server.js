@@ -4,6 +4,7 @@
 //
 //   node tests/backend/local-server.js      (PORT=8770 by default)
 //   http://localhost:8770/?date=2026-09-24  RSVP page (seeded: max 4, 2 waiting)
+//   http://localhost:8770/?date=2026-10-08  23 players with positions/scores (Make teams)
 //   http://localhost:8770/__login-admin     sign this browser in as admin
 //   http://localhost:8770/__sheet           current RSVPs sheet as JSON
 //
@@ -20,7 +21,11 @@ const ADMIN_ID = "AKfycbyc_NEAxzm_0R2Mp05vHYURAHKNYqvjccBFTBh7JAgi7UThHi-W3F-2qM
 const ADMIN_TOKEN = "local-test-token";
 
 const ss = new FakeSpreadsheet();
-const NAMES = ["Anh Tran", "Binh Le", "Chau Vo", "Dung Pham", "Em Ho", "Phuc Ly", "Giang Do", "Hoa Mai"];
+const NAMES = [
+  "Anh Tran", "Binh Le", "Chau Vo", "Dung Pham", "Em Ho", "Phuc Ly", "Giang Do", "Hoa Mai",
+  "Khoa Bui", "Long Dang", "Minh Ngo", "Nam Vu", "Oanh Ly", "Quan Ha", "Son Tran", "Tuan Le",
+  "Uyen Pham", "Viet Do", "Xuan Mai", "Yen Ho", "Bao Lam", "Cuong Ta", "Dat Trinh", "Hieu Dinh",
+];
 ss.insertSheet("Roster").data = [
   ["Name", "Venmo", "Facebook", "Note", "Zelle"],
   ...NAMES.map((name) => [name, "", "", "", ""]),
@@ -29,6 +34,7 @@ ss.insertSheet("RSVP Dates").data = [
   ["Play Date", "Added At", "Added By", "Field Name", "Address", "Start Time", "End Time", "Capacity"],
   ["2026-09-24", "", "admin", "Lower Woodland #2", "5201 Green Lake Way N, Seattle, WA 98103", "8:30 PM", "10:30 PM", 4],
   ["2026-10-01", "", "admin", "Washington Park Soccer", "1017 Lake Washington Blvd E, Seattle, WA 98112", "8:30 PM", "10:30 PM", ""],
+  ["2026-10-08", "", "admin", "Magnuson Park Field #6", "7400 Sand Point Way NE, Seattle, WA 98115", "8:00 PM", "10:00 PM", 24],
 ];
 
 // A working cache + admin password so admin login/token checks run for real.
@@ -57,6 +63,28 @@ cache.set(adminApp.getAdminTokenCacheKey_(ADMIN_TOKEN), "true");
 ["Anh Tran", "Binh Le", "Chau Vo", "Dung Pham", "Em Ho"].forEach((name) =>
   rsvpApp.call({ playDate: "2026-09-24", playerName: name, participantCount: "1", vote: "Yes" }));
 rsvpApp.call({ playDate: "2026-09-24", playerName: "Phuc Ly", participantCount: "2", vote: "Yes" });
+
+// Seed 2026-10-08 (max 24) with 23 players for the team builder: 22 people
+// plus one guest. Most have favorite positions and per-position scores; two
+// are left unscored and one has no positions, so the panel's notes show.
+const POSITIONS = ["GK", "LB", "CB", "RB", "CM", "LW", "RW", "ST"];
+NAMES.slice(0, 22).forEach((name, index) => {
+  rsvpApp.call({ playDate: "2026-10-08", playerName: name, participantCount: index === 5 ? "2" : "1", vote: "Yes" });
+  const main = POSITIONS[index % 8];
+  const second = POSITIONS[(index + 3) % 8];
+  if (index !== 7) {
+    adminApp.call({ action: "savePlayerPositions", playerName: name, positions: `${main},${second}` });
+  }
+  if (index !== 3 && index !== 11) {
+    const skill = 4 + ((index * 7) % 6); // 4..9
+    adminApp.call({
+      action: "savePlayerScores",
+      adminToken: ADMIN_TOKEN,
+      playerName: name,
+      scores: JSON.stringify({ [main]: skill, [second]: Math.max(1, skill - 2) }),
+    });
+  }
+});
 
 const TYPES = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",

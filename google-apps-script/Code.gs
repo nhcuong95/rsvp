@@ -25,6 +25,18 @@ const OPEN_DATES_HEADERS = [
 // date's Capacity. Billing, the report, and the admin tally count only "Yes",
 // so waitlisted players are never charged.
 const WAITLIST_VOTE = "Waitlist";
+// Balanced team builder data (see team-builder.js). Favorite positions are
+// set by players themselves and are fine to show anyone. Per-position skill
+// scores are ADMIN-ONLY: they live in their own sheet that only requireAdmin_
+// actions read, never in "Roster" (migrateRosterSheet_ folds extra Roster
+// columns into Note, which the public RSVP backend returns to anyone).
+const FIELD_POSITIONS = ["GK", "LB", "CB", "RB", "CM", "LW", "RW", "ST"];
+const PLAYER_POSITIONS_SHEET_NAME = "Player Positions";
+const PLAYER_POSITIONS_HEADERS = ["Name", "Positions", "Updated At"];
+const PLAYER_SCORES_SHEET_NAME = "Player Scores";
+const PLAYER_SCORES_HEADERS = ["Name"].concat(FIELD_POSITIONS, ["Updated At"]);
+const MIN_POSITION_SCORE = 1;
+const MAX_POSITION_SCORE = 10;
 const EXPORT_SPREADSHEET_ID = "1VVSCnvyLOoAjC1qJ7CB4oMEgEcKX0j77nxD-2-rpNzQ";
 const PREVIEW_MAX_ROWS = 120;
 const PREVIEW_MAX_COLUMNS = 80;
@@ -209,6 +221,42 @@ function doGet(event) {
       return jsonp_(callback, {
         ok: true,
         roster: getRoster_(),
+      });
+    }
+
+    if (params.action === "listPlayerPositions") {
+      return jsonp_(callback, {
+        ok: true,
+        action: "listPlayerPositions",
+        players: listPlayerPositions_(),
+      });
+    }
+
+    if (params.action === "savePlayerPositions") {
+      const result = savePlayerPositions_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "savePlayerPositions",
+        playerName: result.playerName,
+        positions: result.positions,
+      });
+    }
+
+    if (params.action === "listPlayerScores") {
+      return jsonp_(callback, {
+        ok: true,
+        action: "listPlayerScores",
+        players: listPlayerScores_(params),
+      });
+    }
+
+    if (params.action === "savePlayerScores") {
+      const result = savePlayerScores_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "savePlayerScores",
+        playerName: result.playerName,
+        scores: result.scores,
       });
     }
 
@@ -1734,12 +1782,164 @@ function removeRosterMember_(params) {
   }
 }
 
+function getPlayerPositionsSheet_() {
+  return getBillingSheet_(PLAYER_POSITIONS_SHEET_NAME, PLAYER_POSITIONS_HEADERS);
+}
+
+function getPlayerScoresSheet_() {
+  return getBillingSheet_(PLAYER_SCORES_SHEET_NAME, PLAYER_SCORES_HEADERS);
+}
+
+// "cb, RB" -> ["CB", "RB"], in FIELD_POSITIONS order; unknown codes dropped.
+function parsePositions_(value) {
+  const codes = String(value || "").toUpperCase().split(/[^A-Z]+/);
+  return FIELD_POSITIONS.filter((position) => codes.includes(position));
+}
+
+// The roster spelling of a name, or throws if they aren't on the roster.
+function requireRosterName_(playerName) {
+  const name = normalize_(required_(playerName, "Missing player name"));
+  const match = getRosterNames_().find((rosterName) => normalize_(rosterName) === name);
+  if (!match) {
+    throw new Error("Please choose a player from the roster");
+  }
+  return match;
+}
+
+// Every roster member with their favorite positions ([] if none saved).
+// Names and positions only — safe for anyone.
+function listPlayerPositions_() {
+  const sheet = getPlayerPositionsSheet_();
+  const saved = {};
+  if (sheet.getLastRow() >= 2) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues().forEach((row) => {
+      saved[normalize_(row[0])] = parsePositions_(row[1]);
+    });
+  }
+  return getRosterNames_().map((name) => ({
+    name,
+    positions: saved[normalize_(name)] || [],
+  }));
+}
+
+// Players set their own favorite positions without logging in (like picking
+// their name on the RSVP page). Low stakes: every change is audit-logged with
+// the previous value so an admin can see and undo it.
+function savePlayerPositions_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const playerName = requireRosterName_(params.playerName);
+    const positions = parsePositions_(params.positions);
+    const sheet = getPlayerPositionsSheet_();
+    const row = findRosterRow_(sheet, playerName);
+    const previous = row ? parsePositions_(sheet.getRange(row, 2).getValue()) : [];
+    const values = [playerName, positions.join(", "), new Date().toISOString()];
+    if (row) {
+      sheet.getRange(row, 1, 1, values.length).setValues([values]);
+    } else {
+      sheet.appendRow(values);
+    }
+    appendAuditLog_(
+      Object.assign({}, params, { playDate: "", playerName, participantCount: "" }),
+      "positions_updated",
+      row || sheet.getLastRow(),
+      { previousPositions: previous, positions },
+    );
+    return { playerName, positions };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ADMIN ONLY: every roster member's per-position scores ({} if unscored).
+function listPlayerScores_(params) {
+  requireAdmin_(params);
+  const sheet = getPlayerScoresSheet_();
+  const saved = {};
+  if (sheet.getLastRow() >= 2) {
+    sheet
+      .getRange(2, 1, sheet.getLastRow() - 1, 1 + FIELD_POSITIONS.length)
+      .getValues()
+      .forEach((row) => {
+        const scores = {};
+        FIELD_POSITIONS.forEach((position, index) => {
+          // Lenient on read: skip a hand-edited bad cell rather than fail.
+          const score = Number(row[index + 1]);
+          if (Number.isInteger(score) && score >= MIN_POSITION_SCORE && score <= MAX_POSITION_SCORE) {
+            scores[position] = score;
+          }
+        });
+        saved[normalize_(row[0])] = scores;
+      });
+  }
+  return getRosterNames_().map((name) => ({
+    name,
+    scores: saved[normalize_(name)] || {},
+  }));
+}
+
+// A whole number from MIN_POSITION_SCORE to MAX_POSITION_SCORE, or null for
+// blank; anything else throws.
+function parsePositionScore_(value) {
+  const text = String(value === undefined || value === null ? "" : value).trim();
+  if (!text) {
+    return null;
+  }
+  const score = Number(text);
+  if (!Number.isInteger(score) || score < MIN_POSITION_SCORE || score > MAX_POSITION_SCORE) {
+    throw new Error(
+      `Scores must be whole numbers from ${MIN_POSITION_SCORE} to ${MAX_POSITION_SCORE} (or blank)`,
+    );
+  }
+  return score;
+}
+
+// ADMIN ONLY: replace one player's scores. params.scores is JSON like
+// {"CB": 8, "RB": 7}; positions left out or blank are cleared.
+function savePlayerScores_(params) {
+  requireAdmin_(params);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const playerName = requireRosterName_(params.playerName);
+    let requested;
+    try {
+      requested = JSON.parse(params.scores || "{}");
+    } catch (error) {
+      throw new Error("Scores must be sent as JSON");
+    }
+    const scores = {};
+    FIELD_POSITIONS.forEach((position) => {
+      const score = parsePositionScore_(requested ? requested[position] : "");
+      if (score !== null) {
+        scores[position] = score;
+      }
+    });
+    const values = [playerName]
+      .concat(FIELD_POSITIONS.map((position) => (position in scores ? scores[position] : "")))
+      .concat(new Date().toISOString());
+    const sheet = getPlayerScoresSheet_();
+    const row = findRosterRow_(sheet, playerName);
+    if (row) {
+      sheet.getRange(row, 1, 1, values.length).setValues([values]);
+    } else {
+      sheet.appendRow(values);
+    }
+    return { playerName, scores };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function renamePlayerEverywhere_(oldName, newName) {
   return {
     rsvpRows: renamePlayerInSheetColumn_(getSheet_(), 2, oldName, newName),
     auditRows: renamePlayerInSheetColumn_(getAuditSheet_(), 4, oldName, newName),
     auditExistingRows: renamePlayerInAuditExistingRsvps_(oldName, newName),
     exportRows: renamePlayerInExportSheets_(oldName, newName),
+    positionRows: renamePlayerInSheetColumn_(getPlayerPositionsSheet_(), 1, oldName, newName),
+    scoreRows: renamePlayerInSheetColumn_(getPlayerScoresSheet_(), 1, oldName, newName),
   };
 }
 

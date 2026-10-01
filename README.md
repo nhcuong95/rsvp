@@ -13,6 +13,7 @@ Static RSVP page for weekly play sessions.
 - Existing RSVPs show a confirmation dialog before they are overwritten.
 - After submit and when the date changes, the page shows the reserved participant tally for that date.
 - Admins can set a max players (spots, guests included) per date. Once full, new RSVPs join a waitlist (stored as Vote `Waitlist`, which billing and the report ignore) and move up automatically, in sign-up order, when a spot opens. Confirmed players are never bumped; admin attendance edits override the limit.
+- Players set their favorite positions (GK, LB, CB, RB, CM, LW, RW, ST) on the Members page; admins also score each player 1–10 per position (stored in an admin-only "Player Scores" sheet, never returned by the public backend). On the RSVP page an admin can **Make teams**: balanced 8v8 teams (`team-builder.js`) from the confirmed players — 24 → 3×8, 23 → 3 teams with one borrowing a GK, 16–22 → 2×8 plus subs — then Reshuffle or copy them for Messenger (scores never included).
 - Once an admin locks a date, confirmed players can't drop out, but they can tap **Request to withdraw**. They keep their spot (and can still be charged) while their row shows "Withdraw requested"; they can cancel it. A logged-in admin sees **Accept** / **Decline** on that row: accepting removes the RSVP and moves the waitlist up, declining keeps them in. The request is stored in the RSVPs sheet's `Withdraw Requested At` column.
 - `export.html` exports a selected month, then renders clickable group heatmap and player-filtered overview.
 - `billing.html` renders monthly billing from attendance, editable field blocks, extras purchases, and local payment statuses.
@@ -90,10 +91,10 @@ Then open:
 - Browser tests: `http://localhost:8000/tests/rsvp-rules.test.html`
 - Billing parser tests: `http://localhost:8000/tests/billing-parser.test.html`
 
-Backend tests run both `Code.gs` files under Node (18+, nothing to install) against an in-memory fake Google Sheet:
+Node tests (18+, nothing to install) cover the team builder and run both `Code.gs` files against an in-memory fake Google Sheet:
 
 ```bash
-node --test "tests/backend/*.test.js"
+node --test "tests/**/*.test.js"
 ```
 
 To try front-end and backend changes together before deploying, run `node tests/backend/local-server.js` and open `http://localhost:8770/`. The page talks to the local copies of both backends on a throwaway fake sheet (never the real one); `/__login-admin` signs the browser in as admin.
