@@ -515,19 +515,12 @@ function doGet(event) {
       });
     }
 
-    if (params.action) {
-      throw new Error(`Unsupported action: ${params.action}`);
-    }
-
-    const result = upsertRsvp_(params);
-    return jsonp_(callback, {
-      ok: true,
-      action: result.action,
-      row: result.row,
-      existing: result.existing || null,
-      audit: result.audit || null,
-      tally: result.tally,
-    });
+    // No action-less RSVP writes here: they skipped the login and the RSVP
+    // backend's waitlist. Players RSVP through the RSVP backend; admins use
+    // adminUpsertRsvp.
+    throw new Error(
+      params.action ? `Unsupported action: ${params.action}` : "Missing action",
+    );
   } catch (error) {
     return jsonp_(callback, {
       ok: false,
@@ -1651,6 +1644,7 @@ function completeRosterMemberInfo_(params) {
   lock.waitLock(10000);
 
   try {
+    requireAdmin_(params);
     const name = sanitizeText_(
       required_(params.playerName || params.name, "Missing player name").trim(),
     );
@@ -1677,8 +1671,8 @@ function completeRosterMemberInfo_(params) {
     };
     const updatedFields = [];
 
-    // Members can update their own info: a non-blank value overrides what is
-    // there, and a blank field is ignored (keeps the existing value).
+    // Admin-only (this backend's URL is public): a non-blank value overrides
+    // what is there, and a blank field is ignored (keeps the existing value).
     if (requested.venmo && normalize_(requested.venmo) !== normalize_(current.venmo)) {
       values[1] = requested.venmo;
       updatedFields.push("Venmo");
