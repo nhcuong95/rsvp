@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Billing</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20261003-2" />
+    <link rel="stylesheet" href="./styles.css?v=20261003-3" />
   </head>
   <body>
     <main class="shell billing-shell">
@@ -168,6 +168,25 @@
                   </button>
                 </div>
 
+                <details class="payment-import">
+                  <summary>Import payments from a list (Venmo / Zelle)</summary>
+                  <p>
+                    One payment per line:
+                    <code>month | paid on | player | amount | method | note</code>,
+                    for example <code>2026-09 | 2026-09-11 | Quan N Nguyen | 19.00 | Zelle | 9-3 + 9-10 soccer</code>.
+                    Each line goes to its own month. Lines already recorded are skipped.
+                  </p>
+                  <textarea id="payment-import-text" rows="8" spellcheck="false" aria-label="Payments to import"></textarea>
+                  <div class="payment-import-actions">
+                    <button id="payment-import-check" class="secondary-button" type="button">Check</button>
+                    <button id="payment-import-record" type="button" disabled>Record payments</button>
+                  </div>
+                  <p id="payment-import-feedback" class="section-status" role="status" aria-live="polite"></p>
+                  <div class="table-wrap">
+                    <table id="payment-import-table" class="export-table billing-table compact-billing-table" hidden></table>
+                  </div>
+                </details>
+
                 <form id="payment-form" class="billing-inline-form payment-record-form">
                   <label class="field">
                     <span>Paid On</span>
@@ -201,24 +220,6 @@
                   <table id="payment-table" class="export-table billing-table compact-billing-table"></table>
                 </div>
 
-                <details class="payment-import">
-                  <summary>Import payments from a list</summary>
-                  <p>
-                    One payment per line:
-                    <code>month | paid on | player | amount | method | note</code>,
-                    for example <code>2026-09 | 2026-09-11 | Quan N Nguyen | 19.00 | Zelle | 9-3 + 9-10 soccer</code>.
-                    Each line goes to its own month. Lines already recorded are skipped.
-                  </p>
-                  <textarea id="payment-import-text" rows="8" spellcheck="false" aria-label="Payments to import"></textarea>
-                  <div class="payment-import-actions">
-                    <button id="payment-import-check" class="secondary-button" type="button">Check</button>
-                    <button id="payment-import-record" type="button" disabled>Record payments</button>
-                  </div>
-                  <p id="payment-import-feedback" class="section-status" role="status" aria-live="polite"></p>
-                  <div class="table-wrap">
-                    <table id="payment-import-table" class="export-table billing-table compact-billing-table" hidden></table>
-                  </div>
-                </details>
               </section>
 
               <section id="court-section" class="billing-band admin-only" aria-labelledby="court-heading">
