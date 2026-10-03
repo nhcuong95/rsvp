@@ -2128,6 +2128,55 @@
     }
   }
 
+  // Record many payments with as few requests as possible: Apps Script
+  // rejects GET URLs much past 8,000 characters, so each request carries up
+  // to PAYMENT_BATCH_CHARS of encoded payments. JSONP only (one attempt per
+  // batch), so a slow reply is never sent twice. Resolves to one
+  // { ok, error } per payment, in order.
+  const PAYMENT_BATCH_CHARS = 5000;
+
+  async function recordPaymentsInBatches(payments, onProgress) {
+    const results = [];
+    let start = 0;
+    while (start < payments.length) {
+      const batch = [];
+      let size = 0;
+      while (start + batch.length < payments.length) {
+        const payment = payments[start + batch.length];
+        const row = [
+          payment.month,
+          payment.paidOn,
+          payment.playerName,
+          Number(payment.amount).toFixed(2),
+          payment.method,
+          payment.note || "",
+        ];
+        const rowSize = encodeURIComponent(JSON.stringify(row)).length + 3;
+        if (batch.length && size + rowSize > PAYMENT_BATCH_CHARS) {
+          break;
+        }
+        batch.push(row);
+        size += rowSize;
+      }
+      onProgress(start + 1, start + batch.length, payments.length);
+      try {
+        const response = await requestViaJsonp({
+          action: "saveBillingPaymentRecords",
+          records: JSON.stringify(batch),
+          adminToken,
+          actor: getRememberedPlayer(),
+        });
+        batch.forEach((_, index) => {
+          results.push(response.results?.[index] || { ok: false, error: "No reply for this payment" });
+        });
+      } catch (error) {
+        batch.forEach(() => results.push({ ok: false, error: error.message }));
+      }
+      start += batch.length;
+    }
+    return results;
+  }
+
   // Players marked Paid on the old field-split bill (months before per-date
   // prices) and how much of that bill no recorded payment covers yet. The
   // old-bill balance already subtracts payments recorded for the month, so
@@ -2190,28 +2239,20 @@
     }
 
     legacyPaidButton.disabled = true;
-    let done = 0;
-    let failure = null;
-    try {
-      for (const entry of entries) {
-        setSectionStatus(paymentFeedback, `Recording ${done + 1} of ${entries.length}...`, "loading");
-        // JSONP only: one attempt per payment, so a slow reply is never sent twice.
-        await requestViaJsonp({
-          action: "saveBillingPaymentRecord",
-          month,
-          playerName: entry.name,
-          amount: entry.amount.toFixed(2),
-          method: "Other",
-          paidOn,
-          note,
-          adminToken,
-          actor: getRememberedPlayer(),
-        });
-        done += 1;
-      }
-    } catch (error) {
-      failure = error;
-    }
+    const results = await recordPaymentsInBatches(
+      entries.map((entry) => ({
+        month,
+        paidOn,
+        playerName: entry.name,
+        amount: entry.amount,
+        method: "Other",
+        note,
+      })),
+      (from, to, total) =>
+        setSectionStatus(paymentFeedback, `Recording ${from}-${to} of ${total}...`, "loading"),
+    );
+    const done = results.filter((result) => result.ok).length;
+    const failure = results.find((result) => !result.ok);
 
     clearBillingCache(month);
     await loadBillingMonth(null, { forceRefresh: true });
@@ -2219,7 +2260,7 @@
     setSectionStatus(
       paymentFeedback,
       failure
-        ? `Recorded ${done} of ${entries.length}. ${failure.message}. Click again to record the rest.`
+        ? `Recorded ${done} of ${entries.length}. ${failure.error}. Click again to record the rest.`
         : `Recorded ${done} old payments.`,
       failure ? "error" : "success",
     );
@@ -2374,34 +2415,15 @@
     }
     paymentImportRecord.disabled = true;
     paymentImportCheck.disabled = true;
-    let done = 0;
-    for (const entry of pending) {
-      setSectionStatus(
-        paymentImportFeedback,
-        `Recording ${done + 1} of ${pending.length}...`,
-        "loading",
-      );
-      try {
-        // JSONP only: one attempt per payment, so a slow reply is never sent twice.
-        await requestViaJsonp({
-          action: "saveBillingPaymentRecord",
-          month: entry.month,
-          playerName: entry.playerName,
-          amount: entry.amount.toFixed(2),
-          method: entry.method,
-          paidOn: entry.paidOn,
-          note: entry.note,
-          adminToken,
-          actor: getRememberedPlayer(),
-        });
-        entry.state = "done";
-        done += 1;
-      } catch (error) {
-        entry.state = "failed";
-        entry.problem = error.message;
-      }
-      renderPaymentImport();
-    }
+    const results = await recordPaymentsInBatches(pending, (from, to, total) =>
+      setSectionStatus(paymentImportFeedback, `Recording ${from}-${to} of ${total}...`, "loading"),
+    );
+    results.forEach((result, index) => {
+      pending[index].state = result.ok ? "done" : "failed";
+      pending[index].problem = result.ok ? "" : result.error;
+    });
+    const done = results.filter((result) => result.ok).length;
+    renderPaymentImport();
     [...new Set(pending.map((entry) => entry.month))].forEach(clearBillingCache);
     await loadBillingMonth(null, { forceRefresh: true });
     paymentImportCheck.disabled = false;

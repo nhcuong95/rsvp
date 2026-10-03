@@ -610,6 +610,15 @@ function doGet(event) {
       });
     }
 
+    if (params.action === "saveBillingPaymentRecords") {
+      requireAdmin_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "saveBillingPaymentRecords",
+        results: saveBillingPaymentRecords_(params),
+      });
+    }
+
     if (params.action === "removeBillingPaymentRecord") {
       requireAdmin_(params);
       return jsonp_(callback, {
@@ -2983,45 +2992,112 @@ function saveBillingPaymentRecord_(params) {
   lock.waitLock(10000);
 
   try {
-    const month = required_(params.month, "Missing billing month");
-    validateMonth_(month);
-    const playerName = sanitizeText_(
-      required_(params.playerName, "Missing player name").trim(),
+    const values = billingPaymentRecordValues_(
+      params,
+      getRosterNameSet_(),
+      getBillingActor_(params),
+      new Date().toISOString(),
     );
-    validatePlayerName_(playerName);
-    const amount = parseMoneyNumber_(
-      required_(params.amount, "Missing payment amount"),
-      "Payment amount must be a number",
-    );
-    if (amount <= 0) {
-      throw new Error("Payment amount must be more than $0");
-    }
-    const paidOn = normalizeDate_(params.paidOn || formatDate_(new Date()));
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) {
-      throw new Error("Enter a valid payment date");
-    }
-    const actor = getBillingActor_(params);
-    const now = new Date().toISOString();
-    const values = [
-      Utilities.getUuid(),
-      month,
-      paidOn,
-      playerName,
-      amount,
-      normalizePaymentMethod_(params.method),
-      sanitizeText_(params.note || ""),
-      "active",
-      now,
-      now,
-      actor,
-      actor,
-    ];
     getBillingPaymentRecordSheet_().appendRow(values);
 
     return billingPaymentRecordRowToRecord_(values);
   } finally {
     lock.releaseLock();
   }
+}
+
+// Many payments in one request (bank/Venmo imports): params.records is JSON
+// [[month, paidOn, playerName, amount, method, note], ...]. Each is checked on
+// its own; the valid ones are written in one go and every entry gets a result,
+// in order: { ok: true, paymentRecord } or { ok: false, error }.
+function saveBillingPaymentRecords_(params) {
+  let entries;
+  try {
+    entries = JSON.parse(required_(params.records, "Missing payments"));
+  } catch (error) {
+    throw new Error("Payments must be a JSON list");
+  }
+  if (!Array.isArray(entries) || !entries.length) {
+    throw new Error("Payments must be a non-empty list");
+  }
+  if (entries.length > 200) {
+    throw new Error("Send at most 200 payments at a time");
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const rosterNameSet = getRosterNameSet_();
+    const actor = getBillingActor_(params);
+    const now = new Date().toISOString();
+    const rows = [];
+    const results = entries.map((entry) => {
+      try {
+        const [month, paidOn, playerName, amount, method, note] = Array.isArray(entry)
+          ? entry
+          : [];
+        const values = billingPaymentRecordValues_(
+          { month, paidOn, playerName, amount, method, note },
+          rosterNameSet,
+          actor,
+          now,
+        );
+        rows.push(values);
+        return { ok: true, paymentRecord: billingPaymentRecordRowToRecord_(values) };
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
+    });
+
+    if (rows.length) {
+      const sheet = getBillingPaymentRecordSheet_();
+      sheet
+        .getRange(sheet.getLastRow() + 1, 1, rows.length, BILLING_PAYMENT_RECORD_HEADERS.length)
+        .setValues(rows);
+    }
+    return results;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Checks one payment ({ month, paidOn, playerName, amount, method, note })
+// and returns its "Billing Payment Records" row.
+function billingPaymentRecordValues_(payment, rosterNameSet, actor, now) {
+  const month = required_(payment.month, "Missing billing month");
+  validateMonth_(month);
+  const playerName = sanitizeText_(
+    required_(payment.playerName, "Missing player name").trim(),
+  );
+  if (!isRosterPlayer_(playerName, rosterNameSet)) {
+    throw new Error("Please choose a player from the roster");
+  }
+  const amount = parseMoneyNumber_(
+    required_(payment.amount, "Missing payment amount"),
+    "Payment amount must be a number",
+  );
+  if (amount <= 0) {
+    throw new Error("Payment amount must be more than $0");
+  }
+  const paidOn = normalizeDate_(payment.paidOn || formatDate_(new Date()));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) {
+    throw new Error("Enter a valid payment date");
+  }
+  return [
+    Utilities.getUuid(),
+    month,
+    paidOn,
+    playerName,
+    amount,
+    normalizePaymentMethod_(payment.method),
+    sanitizeText_(payment.note || ""),
+    "active",
+    now,
+    now,
+    actor,
+    actor,
+  ];
 }
 
 function removeBillingPaymentRecord_(params) {

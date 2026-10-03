@@ -134,3 +134,40 @@ test("price and payment writes require admin login", () => {
     assert.match(result.error, /Admin login required/);
   });
 });
+
+test("a batch of payments is written in one request, with a result per entry", () => {
+  const { adminApp, ss } = setup();
+  const result = admin(adminApp, {
+    action: "saveBillingPaymentRecords",
+    records: JSON.stringify([
+      ["2026-09", "2026-09-11", "Anh", "19.00", "Zelle", "9-3 + 9-10 soccer"],
+      ["2026-10", "2026-10-02", "Binh", 9.2, "venmo", ""],
+      ["2026-10", "2026-10-02", "Nobody", "5", "Zelle", "not on the roster"],
+      ["2026-10", "2026-10-02", "Chau", "0", "Zelle", "zero"],
+      ["2026-10", "2026-10-02", "Chau", "6", "Zelle", "same day, same amount"],
+      ["2026-10", "2026-10-02", "Chau", "6", "Zelle", "same day, same amount"],
+    ]),
+  });
+  assert.strictEqual(result.ok, true);
+  const results = plain(result.results);
+  assert.deepStrictEqual(results.map((entry) => entry.ok), [true, true, false, false, true, true]);
+  assert.match(results[2].error, /roster/);
+  assert.match(results[3].error, /more than \$0/);
+  assert.deepStrictEqual(
+    { ...results[1].paymentRecord, id: undefined },
+    { id: undefined, paidOn: "2026-10-02", playerName: "Binh", amount: 9.2, method: "Venmo", note: "", status: "active" },
+  );
+
+  assert.strictEqual(ss.getSheetByName("Billing Payment Records").getLastRow(), 5);
+  assert.deepStrictEqual(billingOf(adminApp).paymentRecords.map((entry) => entry.amount), [9.2, 6, 6]);
+  const ids = results.filter((entry) => entry.ok).map((entry) => entry.paymentRecord.id);
+  assert.strictEqual(new Set(ids).size, 4);
+});
+
+test("a batch must be a JSON list and needs admin login", () => {
+  const { adminApp } = setup();
+  assert.match(admin(adminApp, { action: "saveBillingPaymentRecords", records: "not json" }).error, /JSON list/);
+  assert.match(admin(adminApp, { action: "saveBillingPaymentRecords", records: "[]" }).error, /non-empty/);
+  const noLogin = adminApp.call({ action: "saveBillingPaymentRecords", records: "[]" });
+  assert.match(noLogin.error, /Admin login required/);
+});
