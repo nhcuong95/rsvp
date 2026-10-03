@@ -37,6 +37,10 @@
   const LAST_PLAYER_KEY = "play-rsvp.lastPlayerName";
   const DEFAULT_COURT_PAYER = ""; // no fixed payer; falls back to remembered player
   const STATUS_OPTIONS = ["Not requested", "Requested", "Paid", "Credit carryover"];
+  // From this month on, each date is billed at its own price per person (no
+  // price = free) and payments are recorded as amounts, settled per month.
+  // Earlier months keep the field-cost split and the Paid status dropdown.
+  const PER_DATE_PRICING_FROM = "2026-10";
   const BILLING_CACHE_PREFIX = "billing:backend:";
   const BILLING_MONTHS_CACHE_PREFIX = "billing:months:";
   const MEMBER_BILLING_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -102,6 +106,16 @@
   const copyDuesButton = document.querySelector("#copy-dues-button");
   const memberSelect = document.querySelector("#member-detail-select");
   const memberDetail = document.querySelector("#member-detail");
+  const priceFeedback = document.querySelector("#price-feedback");
+  const priceTable = document.querySelector("#price-table");
+  const paymentForm = document.querySelector("#payment-form");
+  const paymentDateInput = document.querySelector("#payment-date");
+  const paymentPlayerInput = document.querySelector("#payment-player");
+  const paymentAmountInput = document.querySelector("#payment-amount");
+  const paymentMethodInput = document.querySelector("#payment-method");
+  const paymentNoteInput = document.querySelector("#payment-note");
+  const paymentFeedback = document.querySelector("#payment-feedback");
+  const paymentTable = document.querySelector("#payment-table");
 
   let attendanceRows = [];
   let billing = null;
@@ -1090,17 +1104,48 @@
     return readJson(storageKey("adjustments"), []);
   }
 
+  function isPricedMonth() {
+    return monthInput.value >= PER_DATE_PRICING_FROM;
+  }
+
+  function getDatePriceEntries() {
+    if (backendBilling) {
+      return backendBilling.datePrices || [];
+    }
+
+    return readJson(storageKey("datePrices"), []);
+  }
+
+  function setDatePriceEntries(entries) {
+    writeJson(storageKey("datePrices"), entries);
+  }
+
+  function getPaymentRecords() {
+    if (backendBilling) {
+      return backendBilling.paymentRecords || [];
+    }
+
+    return readJson(storageKey("paymentRecords"), []);
+  }
+
+  function setPaymentRecords(records) {
+    writeJson(storageKey("paymentRecords"), records);
+  }
+
   function getRememberedPlayer() {
     const remembered = localStorage.getItem(LAST_PLAYER_KEY) || "";
     return PLAYERS.includes(remembered) ? remembered : "Thanh Nguyen";
   }
 
   function calculateBilling() {
+    const priced = isPricedMonth();
+    const datePrices = new Map(
+      getDatePriceEntries().map((entry) => [entry.date, Number(entry.price || 0)]),
+    );
     const courtBlocks = getCourtBlocks();
     const birdieState = getBirdieState();
     const activeCourtBlocks = courtBlocks.filter((block) => block.status === "active");
     const courtByDate = new Map();
-    const credits = new Map();
     const members = new Map();
     let totalWeightedSpots = 0;
     let totalSpots = 0;
@@ -1112,10 +1157,13 @@
           spots: 0,
           weightedSpots: 0,
           courtFee: 0,
+          dateFee: 0,
           birdieFee: 0,
           credits: 0,
+          paid: 0,
           netBalance: 0,
           attendance: [],
+          payments: [],
         });
       }
       return members.get(name);
@@ -1123,7 +1171,9 @@
 
     activeCourtBlocks.forEach((block) => {
       courtByDate.set(block.date, (courtByDate.get(block.date) || 0) + Number(block.amount || 0));
-      if (block.paidBy) {
+      // With per-date prices the field is the group's cost, paid out of what
+      // players pay, so whoever booked it is not credited here.
+      if (block.paidBy && !priced) {
         const payer = ensureMember(block.paidBy);
         payer.credits += Number(block.amount || 0);
       }
@@ -1145,12 +1195,21 @@
         member.credits += Number(adjustment.amount || 0);
       });
 
+    getPaymentRecords()
+      .filter((record) => record.status !== "canceled")
+      .forEach((record) => {
+        const member = ensureMember(record.playerName);
+        member.paid += Number(record.amount || 0);
+        member.payments.push(record);
+      });
+
     attendanceRows.forEach((day) => {
       const weight = getDateWeight(day.date);
       const daySpots = day.players.reduce((sum, player) => sum + player.spots, 0);
       const dayWeightedSpots = daySpots * weight;
       const dayCourtTotal = courtByDate.get(day.date) || 0;
-      const courtPerSpot = daySpots > 0 ? dayCourtTotal / daySpots : 0;
+      const courtPerSpot = !priced && daySpots > 0 ? dayCourtTotal / daySpots : 0;
+      const price = priced ? datePrices.get(day.date) || 0 : 0;
       totalSpots += daySpots;
       totalWeightedSpots += dayWeightedSpots;
 
@@ -1160,11 +1219,14 @@
         member.spots += entry.spots;
         member.weightedSpots += weightedSpots;
         member.courtFee += courtPerSpot * entry.spots;
+        member.dateFee += price * entry.spots;
         member.attendance.push({
           date: day.date,
           spots: entry.spots,
           weight,
+          price,
           courtFee: courtPerSpot * entry.spots,
+          dateFee: price * entry.spots,
         });
       });
     });
@@ -1180,10 +1242,14 @@
 
     members.forEach((member) => {
       member.birdieFee = member.weightedSpots * birdiePerWeightedSpot;
-      member.netBalance = member.courtFee + member.birdieFee - member.credits;
+      member.netBalance =
+        member.courtFee + member.dateFee + member.birdieFee - member.credits - member.paid;
     });
 
     return {
+      priced,
+      datePrices,
+      courtByDate,
       courtBlocks,
       birdieState,
       birdiePerWeightedSpot,
@@ -1223,20 +1289,32 @@
       0,
     );
     const openBalance = billing.members
-      .filter((member) => getPaymentStatus(member.name) !== "Paid")
+      .filter((member) => !isMemberSettled(member))
       .reduce((sum, member) => sum + Math.max(0, member.netBalance), 0);
     const creditTotal = billing.members.reduce(
       (sum, member) => sum + Math.max(0, -member.netBalance),
       0,
     );
-    const metrics = [
-      ["Expected Expense", formatMoney(courtTotal + birdieTotal), "success"],
-      ["Field Total", formatMoney(courtTotal), ""],
-      ["Extras Total", formatMoney(birdieTotal), ""],
-      ["Weighted Spots", formatNumber(billing.totalWeightedSpots, 1), ""],
-      ["Open Balance", formatMoney(openBalance), openBalance > 0 ? "warning" : "success"],
-      ["Credits", formatMoney(creditTotal), creditTotal > 0 ? "credit" : ""],
-    ];
+    const gameFees = billing.members.reduce((sum, member) => sum + member.dateFee, 0);
+    const collected = billing.members.reduce((sum, member) => sum + member.paid, 0);
+    const fieldMargin = roundMoney(gameFees - courtTotal);
+    const metrics = billing.priced
+      ? [
+          ["Billed", formatMoney(gameFees + birdieTotal), ""],
+          ["Collected", formatMoney(collected), "success"],
+          ["Outstanding", formatMoney(openBalance), openBalance > 0.005 ? "warning" : "success"],
+          ["Credits", formatMoney(creditTotal), creditTotal > 0.005 ? "credit" : ""],
+          ["Field Cost", formatMoney(courtTotal), ""],
+          ["Game Fees - Field", formatMoney(fieldMargin), fieldMargin < 0 ? "warning" : "success"],
+        ]
+      : [
+          ["Expected Expense", formatMoney(courtTotal + birdieTotal), "success"],
+          ["Field Total", formatMoney(courtTotal), ""],
+          ["Extras Total", formatMoney(birdieTotal), ""],
+          ["Weighted Spots", formatNumber(billing.totalWeightedSpots, 1), ""],
+          ["Open Balance", formatMoney(openBalance), openBalance > 0 ? "warning" : "success"],
+          ["Credits", formatMoney(creditTotal), creditTotal > 0 ? "credit" : ""],
+        ];
 
     clearElement(summaryEl);
     metrics.forEach(([label, value, tone]) => {
@@ -1537,7 +1615,116 @@
     return "";
   }
 
+  // Priced months work a player's status out from what they owe and have
+  // paid; older months use the status an admin picked.
+  function getMemberStatus(member) {
+    if (!billing.priced) {
+      return getPaymentStatus(member.name);
+    }
+
+    const balance = roundMoney(member.netBalance);
+    if (balance > 0.005) {
+      return member.paid > 0.005 ? "Partial" : "Unpaid";
+    }
+    if (balance < -0.005) {
+      return "Credit";
+    }
+    return member.dateFee + member.birdieFee + member.paid > 0.005 ? "Paid" : "No charge";
+  }
+
+  function isMemberSettled(member) {
+    if (billing.priced) {
+      return roundMoney(member.netBalance) <= 0.005;
+    }
+    return normalizeText(getPaymentStatus(member.name)) === "paid";
+  }
+
+  function getStatusBadgeClass(status) {
+    return {
+      Paid: "paid",
+      Partial: "review",
+      Unpaid: "owed",
+      Credit: "credit",
+    }[status] || "muted";
+  }
+
+  function makePriceLabel(price) {
+    return price > 0 ? formatMoney(price) : "Free";
+  }
+
+  // Fill the payment form for one player with what they still owe.
+  function startPaymentFor(member) {
+    paymentPlayerInput.value = member.name;
+    paymentAmountInput.value =
+      member.netBalance > 0.005 ? roundMoney(member.netBalance).toFixed(2) : "";
+    document.querySelector("#payment-section").scrollIntoView({ behavior: "smooth" });
+    paymentAmountInput.focus({ preventScroll: true });
+  }
+
+  function renderPricedMembers() {
+    renderTable(
+      memberTable,
+      ["Player", "Spots", "Game Fees", "Extras", "Paid", "Balance", "Status", "Action"],
+      billing.members.map((member) => {
+        const status = getMemberStatus(member);
+        const actionCell = document.createElement("td");
+        if (member.netBalance > 0.005) {
+          const payButton = document.createElement("button");
+          payButton.className = "secondary-button inline-button";
+          payButton.type = "button";
+          payButton.textContent = "Record";
+          payButton.addEventListener("click", () => startPaymentFor(member));
+          actionCell.append(payButton, " ");
+        }
+        const detailButton = document.createElement("button");
+        detailButton.className = "secondary-button inline-button";
+        detailButton.type = "button";
+        detailButton.textContent = "Detail";
+        detailButton.addEventListener("click", () => {
+          memberSelect.value = member.name;
+          renderMemberDetail(member.name);
+          document.querySelector("#member-detail-section").scrollIntoView({ behavior: "smooth" });
+        });
+        actionCell.append(detailButton);
+        const extras = member.birdieFee - member.credits;
+
+        return [
+          { text: member.name, className: "name-cell" },
+          { text: String(member.spots), className: "numeric-cell optional-member-column" },
+          { text: formatMoney(member.dateFee), className: "numeric-cell optional-member-column" },
+          { text: formatMoney(extras), className: `numeric-cell optional-member-column ${extras < -0.005 ? "money-credit" : ""}` },
+          { text: formatMoney(member.paid), className: `numeric-cell optional-member-column ${member.paid > 0 ? "money-credit" : ""}` },
+          { text: formatMoney(member.netBalance), className: `numeric-cell member-balance-column ${getMoneyClass(member.netBalance)}` },
+          makeBadge(status, getStatusBadgeClass(status)),
+          actionCell,
+        ];
+      }),
+      [
+        "Total",
+        String(billing.totalSpots),
+        formatMoney(billing.members.reduce((sum, member) => sum + member.dateFee, 0)),
+        formatMoney(billing.members.reduce((sum, member) => sum + member.birdieFee - member.credits, 0)),
+        formatMoney(billing.members.reduce((sum, member) => sum + member.paid, 0)),
+        formatMoney(billing.members.reduce((sum, member) => sum + member.netBalance, 0)),
+        "",
+        "",
+      ],
+    );
+    memberTable
+      .querySelectorAll("thead th:nth-child(2), thead th:nth-child(3), thead th:nth-child(4), thead th:nth-child(5), tfoot td:nth-child(2), tfoot td:nth-child(3), tfoot td:nth-child(4), tfoot td:nth-child(5)")
+      .forEach((cell) => cell.classList.add("optional-member-column"));
+    memberTable
+      .querySelectorAll("thead th:nth-child(6), tfoot td:nth-child(6)")
+      .forEach((cell) => cell.classList.add("member-balance-column"));
+    memberNote.textContent = "Balance = game fees + extras - payments, settled each month.";
+  }
+
   function renderMembers() {
+    if (billing.priced) {
+      renderPricedMembers();
+      return;
+    }
+
     renderTable(
       memberTable,
       ["Player", "Spots", "Extras Fee", "Field Fee", "Paid Credits", "Net Balance", "Payment Status", "Action"],
@@ -1643,10 +1830,7 @@
   }
 
   function renderVenmoPaymentAction(member) {
-    if (
-      member.netBalance <= 0.005 ||
-      normalizeText(getPaymentStatus(member.name)) === "paid"
-    ) {
+    if (member.netBalance <= 0.005 || isMemberSettled(member)) {
       return;
     }
 
@@ -1691,6 +1875,10 @@
     }
 
     localStorage.setItem(LAST_PLAYER_KEY, member.name);
+    if (billing.priced) {
+      renderPricedMemberDetail(member);
+      return;
+    }
     appendDetailRow("Attendance", `${member.spots} spots`);
     appendDetailRow("Weighted spots", formatNumber(member.weightedSpots, 1));
     appendDetailRow("Extras fee", formatMoney(member.birdieFee));
@@ -1715,15 +1903,302 @@
     memberDetail.append(attendance);
   }
 
+  // One line per game (spots x that date's price), then payments, so a player
+  // can check the balance line by line.
+  function renderPricedMemberDetail(member) {
+    const status = getMemberStatus(member);
+    appendDetailRow("Game fees", formatMoney(member.dateFee));
+    if (member.birdieFee > 0.005) {
+      appendDetailRow("Extras", formatMoney(member.birdieFee));
+    }
+    if (member.credits > 0.005) {
+      appendDetailRow("Extras they bought", formatMoney(-member.credits), "money-credit");
+    }
+    appendDetailRow("Paid", formatMoney(member.paid), member.paid ? "money-credit" : "");
+    appendDetailRow("Balance", formatMoney(member.netBalance), getMoneyClass(member.netBalance));
+    appendDetailRow("Status", status);
+    renderVenmoPaymentAction(member);
+
+    const games = document.createElement("section");
+    games.className = "billing-detail-section";
+    games.append(createCell("h3", "Games"));
+    member.attendance
+      .slice()
+      .sort((first, second) => first.date.localeCompare(second.date))
+      .forEach((entry) => {
+        const row = document.createElement("div");
+        row.className = "billing-detail-row";
+        const spots = `${entry.spots} spot${entry.spots === 1 ? "" : "s"}`;
+        row.append(
+          createCell("span", `${formatDisplayDate(entry.date)} · ${spots} × ${makePriceLabel(entry.price)}`),
+          createCell("strong", entry.price > 0 ? formatMoney(entry.dateFee) : "Free"),
+        );
+        games.append(row);
+      });
+    if (!member.attendance.length) {
+      games.append(createCell("p", "No games this month."));
+    }
+    memberDetail.append(games);
+
+    const payments = document.createElement("section");
+    payments.className = "billing-detail-section";
+    payments.append(createCell("h3", "Payments"));
+    member.payments
+      .slice()
+      .sort((first, second) => String(first.paidOn).localeCompare(String(second.paidOn)))
+      .forEach((record) => {
+        const row = document.createElement("div");
+        row.className = "billing-detail-row";
+        const label = [formatDisplayDate(record.paidOn), record.method, record.note]
+          .filter(Boolean)
+          .join(" · ");
+        row.append(
+          createCell("span", label),
+          createCell("strong", formatMoney(record.amount), "money-credit"),
+        );
+        payments.append(row);
+      });
+    if (!member.payments.length) {
+      payments.append(createCell("p", "No payments recorded yet."));
+    }
+    memberDetail.append(payments);
+  }
+
+  // Every date with RSVPs or a saved price this month, with an inline price
+  // editor. Field cost per date is shown so the admin can see the margin.
+  function renderPrices() {
+    const spotsByDate = new Map(
+      attendanceRows.map((day) => [
+        day.date,
+        day.players.reduce((sum, player) => sum + player.spots, 0),
+      ]),
+    );
+    const dates = Array.from(
+      new Set([...spotsByDate.keys(), ...billing.datePrices.keys()]),
+    )
+      .filter((date) => date.startsWith(`${monthInput.value}-`))
+      .sort();
+    let totalSpots = 0;
+    let totalBilled = 0;
+    let totalField = 0;
+
+    renderTable(
+      priceTable,
+      ["Date", "Spots", "Price / Person", "Billed", "Field Cost"],
+      dates.map((date) => {
+        const spots = spotsByDate.get(date) || 0;
+        const price = billing.datePrices.get(date);
+        const fieldCost = billing.courtByDate.get(date) || 0;
+        const billed = (price || 0) * spots;
+        totalSpots += spots;
+        totalBilled += billed;
+        totalField += fieldCost;
+
+        const priceCell = document.createElement("td");
+        const group = document.createElement("form");
+        group.className = "price-input-group";
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.step = "0.01";
+        input.inputMode = "decimal";
+        input.placeholder = "Free";
+        input.value = price === undefined ? "" : String(price);
+        input.setAttribute("aria-label", `Price per person for ${formatDisplayDate(date)}`);
+        const save = document.createElement("button");
+        save.className = "secondary-button inline-button";
+        save.type = "submit";
+        save.textContent = "Save";
+        group.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const text = input.value.trim();
+          const nextPrice = text === "" ? null : roundMoney(Number(text));
+          if (nextPrice !== null && !(nextPrice >= 0)) {
+            setSectionStatus(priceFeedback, "Price must be a dollar amount, or blank for free.", "error");
+            return;
+          }
+          saveBillingAction(
+            { action: "saveBillingDatePrice", date, price: text },
+            () => {
+              const others = getDatePriceEntries().filter((entry) => entry.date !== date);
+              setDatePriceEntries(
+                nextPrice === null ? others : [...others, { date, price: nextPrice }],
+              );
+            },
+            nextPrice === null
+              ? `${formatDisplayDate(date)} is now free.`
+              : `${formatDisplayDate(date)} set to ${formatMoney(nextPrice)} per person.`,
+            priceFeedback,
+          );
+        });
+        group.append(input, save);
+        priceCell.className = "numeric-cell";
+        priceCell.append(group);
+
+        return [
+          { text: formatDisplayDate(date), className: "name-cell" },
+          { text: String(spots), className: "numeric-cell" },
+          priceCell,
+          { text: price ? formatMoney(billed) : "Free", className: "numeric-cell optional-price-column" },
+          { text: fieldCost ? formatMoney(fieldCost) : "", className: "numeric-cell optional-price-column" },
+        ];
+      }),
+      ["Total", String(totalSpots), "", formatMoney(totalBilled), formatMoney(totalField)],
+    );
+    priceTable
+      .querySelectorAll("th:nth-child(4), th:nth-child(5), tfoot td:nth-child(4), tfoot td:nth-child(5)")
+      .forEach((cell) => cell.classList.add("optional-price-column"));
+    if (!dates.length) {
+      setSectionStatus(priceFeedback, "No RSVPs this month yet.", "");
+    }
+  }
+
+  // Players billed this month first (largest balance on top), then the rest
+  // of the roster, keeping the current pick.
+  function fillPaymentPlayerSelect() {
+    const current = paymentPlayerInput.value;
+    const billed = billing.members
+      .slice()
+      .sort((first, second) => second.netBalance - first.netBalance || first.name.localeCompare(second.name))
+      .map((member) => member.name);
+    const others = PLAYERS.filter((name) => !billed.includes(name)).sort((first, second) =>
+      first.localeCompare(second),
+    );
+    clearElement(paymentPlayerInput);
+    [...billed, ...others].forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      paymentPlayerInput.append(option);
+    });
+    if (current && [...billed, ...others].includes(current)) {
+      paymentPlayerInput.value = current;
+    } else {
+      paymentPlayerInput.value = billed[0] || others[0] || "";
+      prefillPaymentAmount();
+    }
+  }
+
+  function renderPayments() {
+    fillPaymentPlayerSelect();
+    const records = getPaymentRecords()
+      .slice()
+      .sort((first, second) => String(first.paidOn).localeCompare(String(second.paidOn)));
+    const activeTotal = records
+      .filter((record) => record.status !== "canceled")
+      .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+
+    renderTable(
+      paymentTable,
+      ["Paid On", "Player", "Method", "Amount", "Note", "Status", "Actions"],
+      records.map((record) => {
+        const canceled = record.status === "canceled";
+        const actions = document.createElement("td");
+        if (!canceled) {
+          const remove = document.createElement("button");
+          remove.className = "inline-action remove";
+          remove.type = "button";
+          remove.textContent = "x";
+          remove.setAttribute("aria-label", "Cancel payment");
+          remove.addEventListener("click", () => {
+            if (!window.confirm(`Cancel ${record.playerName}'s ${formatMoney(record.amount)} payment?`)) {
+              return;
+            }
+            saveBillingAction(
+              { action: "removeBillingPaymentRecord", id: record.id },
+              () => {
+                setPaymentRecords(
+                  getPaymentRecords().map((candidate) =>
+                    candidate.id === record.id ? { ...candidate, status: "canceled" } : candidate,
+                  ),
+                );
+              },
+              "Payment canceled.",
+              paymentFeedback,
+            );
+          });
+          actions.append(remove);
+        }
+
+        return [
+          { text: formatDisplayDate(record.paidOn), className: "name-cell" },
+          { text: record.playerName },
+          { text: record.method },
+          { text: formatMoney(record.amount), className: `numeric-cell ${canceled ? "" : "money-credit"}` },
+          { text: record.note || "" },
+          makeBadge(canceled ? "Canceled" : "Received", canceled ? "muted" : "paid"),
+          actions,
+        ];
+      }),
+      ["Total", "", "", formatMoney(activeTotal), "", "", ""],
+    );
+  }
+
+  function prefillPaymentAmount() {
+    const member = billing?.members.find(
+      (candidate) => candidate.name === paymentPlayerInput.value,
+    );
+    paymentAmountInput.value =
+      member && member.netBalance > 0.005 ? roundMoney(member.netBalance).toFixed(2) : "";
+  }
+
+  function handlePaymentSubmit(event) {
+    event.preventDefault();
+    const playerName = paymentPlayerInput.value;
+    const amount = roundMoney(Number(paymentAmountInput.value));
+    if (!playerName || !(amount > 0)) {
+      setSectionStatus(paymentFeedback, "Pick a player and an amount over $0.", "error");
+      return;
+    }
+    const record = {
+      id: makeId("payment"),
+      paidOn: paymentDateInput.value || formatDate(new Date()),
+      playerName,
+      amount,
+      method: paymentMethodInput.value,
+      note: paymentNoteInput.value.trim(),
+      status: "active",
+    };
+
+    saveBillingAction(
+      {
+        action: "saveBillingPaymentRecord",
+        playerName,
+        amount: String(amount),
+        paidOn: record.paidOn,
+        method: record.method,
+        note: record.note,
+      },
+      () => setPaymentRecords([...getPaymentRecords(), record]),
+      `Recorded ${formatMoney(amount)} from ${playerName}.`,
+      paymentFeedback,
+    ).then((saved) => {
+      if (saved) {
+        paymentNoteInput.value = "";
+        prefillPaymentAmount();
+      }
+    });
+  }
+
   function render() {
     billing = calculateBilling();
     document.querySelectorAll(".admin-only").forEach((element) => {
       element.hidden = !isAdmin;
     });
+    document.querySelectorAll(".priced-only").forEach((element) => {
+      element.hidden = !isAdmin || !billing.priced;
+    });
+    document.querySelectorAll(".legacy-only").forEach((element) => {
+      element.hidden = !isAdmin || billing.priced;
+    });
     renderSummary();
     renderFinalizationStatus();
     renderCourtBlocks();
     renderBirdies();
+    if (billing.priced) {
+      renderPrices();
+      renderPayments();
+    }
     renderMembers();
     renderMemberSelect();
     renderMemberDetail(memberSelect.value);
@@ -1868,6 +2343,30 @@
       return true;
     }
 
+    if (action === "saveBillingDatePrice") {
+      if (!result.datePrice?.date) {
+        return false;
+      }
+      const { date, price } = result.datePrice;
+      const others = (backendBilling.datePrices || []).filter((entry) => entry.date !== date);
+      backendBilling = {
+        ...backendBilling,
+        datePrices: price === null ? others : [...others, { date, price }],
+      };
+      return true;
+    }
+
+    if (action === "saveBillingPaymentRecord" || action === "removeBillingPaymentRecord") {
+      if (!result.paymentRecord?.id) {
+        return false;
+      }
+      backendBilling = {
+        ...backendBilling,
+        paymentRecords: upsertById(backendBilling.paymentRecords || [], result.paymentRecord),
+      };
+      return true;
+    }
+
     if (action === "saveBillingMonthStatus") {
       if (!result.monthStatus) {
         return false;
@@ -1984,7 +2483,7 @@
       if (feedbackEl) {
         setSectionStatus(feedbackEl, successMessage, "success");
       }
-      return;
+      return true;
     }
 
     if (feedbackEl) {
@@ -2024,12 +2523,14 @@
       if (feedbackEl) {
         setSectionStatus(feedbackEl, successMessage, "success");
       }
+      return true;
     } catch (error) {
       if (feedbackEl) {
         setSectionStatus(feedbackEl, error.message, "error");
       } else {
         setStatus(error.message, "error");
       }
+      return false;
     }
   }
 
@@ -2173,9 +2674,7 @@
   function getUnpaidMembers() {
     return billing.members
       .filter(
-        (member) =>
-          roundMoney(member.netBalance) > 0.005 &&
-          normalizeText(getPaymentStatus(member.name)) !== "paid",
+        (member) => roundMoney(member.netBalance) > 0.005 && !isMemberSettled(member),
       )
       .sort((first, second) => second.netBalance - first.netBalance);
   }
@@ -2198,11 +2697,12 @@
         .slice()
         .sort((first, second) => first.date.localeCompare(second.date))
         .map((entry) => {
-          const fee = entry.courtFee + entry.spots * entry.weight * perWeightedSpot;
-          return `${monthDay(entry.date)} (${formatMoney(fee)})`;
+          const fee =
+            entry.courtFee + entry.dateFee + entry.spots * entry.weight * perWeightedSpot;
+          return `${monthDay(entry.date)} (${fee > 0.005 ? formatMoney(fee) : "free"})`;
         })
         .join(", ");
-      const gross = roundMoney(member.courtFee + member.birdieFee);
+      const gross = roundMoney(member.courtFee + member.dateFee + member.birdieFee);
       const paid = roundMoney(gross - member.netBalance);
       const playedText = played ? `play ${played}; ` : "";
       return `• ${member.name} — ${playedText}paid ${formatMoney(
@@ -2345,6 +2845,8 @@
   function initializeInputs() {
     fillPlayerSelect(courtPaidByInput);
     fillPlayerSelect(birdiePaidByInput);
+    paymentDateInput.value = formatDate(new Date());
+    paymentAmountInput.value = "";
     courtPaidByInput.value = PLAYERS.includes(DEFAULT_COURT_PAYER)
       ? DEFAULT_COURT_PAYER
       : getRememberedPlayer();
@@ -2425,6 +2927,8 @@
   birdieUsageBatchInput.addEventListener("change", updateBirdieUsageMax);
   finalizationForm.addEventListener("submit", handleFinalizationSubmit);
   markMonthPaidButton.addEventListener("click", handleMarkMonthPaid);
+  paymentForm.addEventListener("submit", handlePaymentSubmit);
+  paymentPlayerInput.addEventListener("change", prefillPaymentAmount);
   copyDuesButton.addEventListener("click", handleCopyDues);
   memberSelect.addEventListener("change", () => renderMemberDetail(memberSelect.value));
 

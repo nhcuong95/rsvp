@@ -7,6 +7,8 @@ const BILLING_BIRDIE_PURCHASE_SHEET_NAME = "Billing Birdie Purchases";
 const BILLING_PAYMENT_SHEET_NAME = "Billing Payments";
 const BILLING_ADJUSTMENT_SHEET_NAME = "Billing Adjustments";
 const BILLING_MONTH_STATUS_SHEET_NAME = "Billing Month Status";
+const BILLING_DATE_PRICE_SHEET_NAME = "Billing Date Prices";
+const BILLING_PAYMENT_RECORD_SHEET_NAME = "Billing Payment Records";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const OPEN_DATES_SHEET_NAME = "RSVP Dates";
@@ -138,6 +140,32 @@ const BILLING_MONTH_STATUS_HEADERS = [
   "Updated At",
   "Updated By",
 ];
+// Per-person price for one play date (each spot, guests included, is charged
+// this much). Kept apart from "RSVP Dates" because removing a date from the
+// RSVP list deletes its row there. No price = the date is free.
+const BILLING_DATE_PRICE_HEADERS = [
+  "Date",
+  "Month",
+  "Price",
+  "Updated At",
+  "Updated By",
+];
+// Money received from a player for a month (Venmo, Zelle, cash, ...).
+const BILLING_PAYMENT_RECORD_HEADERS = [
+  "ID",
+  "Month",
+  "Paid On",
+  "Player Name",
+  "Amount",
+  "Method",
+  "Note",
+  "Status",
+  "Created At",
+  "Updated At",
+  "Created By",
+  "Updated By",
+];
+const BILLING_PAYMENT_METHODS = ["Venmo", "Zelle", "Cash", "Other"];
 const AUDIT_HEADERS = [
   "Logged At",
   "Action",
@@ -370,6 +398,7 @@ function doGet(event) {
         startTime: result.startTime,
         endTime: result.endTime,
         capacity: result.capacity,
+        price: result.price,
         promoted: result.promoted,
         dates: result.dates,
         dateDetails: result.dateDetails,
@@ -560,6 +589,33 @@ function doGet(event) {
         ok: true,
         action: "removeBillingAdjustment",
         adjustment: removeBillingAdjustment_(params),
+      });
+    }
+
+    if (params.action === "saveBillingDatePrice") {
+      requireAdmin_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "saveBillingDatePrice",
+        datePrice: saveBillingDatePrice_(params),
+      });
+    }
+
+    if (params.action === "saveBillingPaymentRecord") {
+      requireAdmin_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "saveBillingPaymentRecord",
+        paymentRecord: saveBillingPaymentRecord_(params),
+      });
+    }
+
+    if (params.action === "removeBillingPaymentRecord") {
+      requireAdmin_(params);
+      return jsonp_(callback, {
+        ok: true,
+        action: "removeBillingPaymentRecord",
+        paymentRecord: removeBillingPaymentRecord_(params),
       });
     }
 
@@ -937,10 +993,12 @@ function getOpenDates_() {
   return Object.keys(seen).sort();
 }
 
-// Returns one entry per open date with its field name, address, and start/end
-// time, e.g. [{ date: "2026-09-24", fieldName: "Magnuson Park Field #6",
-// address: "7400 Sand Point Way NE", startTime: "8:00 PM", endTime: "10:00 PM" }].
-// Later rows win when a date is duplicated, matching getOpenDates_ dedup.
+// Returns one entry per open date with its field name, address, start/end
+// time, max players, and price per person, e.g. [{ date: "2026-09-24",
+// fieldName: "Magnuson Park Field #6", address: "7400 Sand Point Way NE",
+// startTime: "8:00 PM", endTime: "10:00 PM", capacity: 24, price: 10 }]
+// (capacity/price are null when unset). Later rows win when a date is
+// duplicated, matching getOpenDates_ dedup.
 function getOpenDatesDetailed_() {
   const sheet = getOpenDatesSheet_();
   const lastRow = sheet.getLastRow();
@@ -948,6 +1006,7 @@ function getOpenDatesDetailed_() {
     return [];
   }
   const rows = sheet.getRange(2, 1, lastRow - 1, OPEN_DATES_HEADERS.length).getValues();
+  const prices = getBillingDatePriceMap_();
   const byDate = {};
   rows.forEach((row) => {
     const date = normalizeDate_(row[0]);
@@ -959,6 +1018,7 @@ function getOpenDatesDetailed_() {
         startTime: formatTimeCellValue_(row[5]),
         endTime: formatTimeCellValue_(row[6]),
         capacity: parseCapacity_(row[7]),
+        price: prices[date] === undefined ? null : prices[date],
       };
     }
   });
@@ -1191,6 +1251,10 @@ function savePlayDateDetails_(params) {
     if (capacityProvided && capacityText && capacity === null) {
       throw new Error("Max players must be a whole number (or blank for no limit)");
     }
+    // Price per person works the same way: absent = leave it alone, blank =
+    // free. It lives in the billing sheet so it outlives this RSVP Dates row.
+    const priceProvided = params.price !== undefined;
+    const price = priceProvided ? parseDatePrice_(params.price) : null;
     const sheet = getOpenDatesSheet_();
     let row = findOpenDateRow_(sheet, playDate);
     if (!row) {
@@ -1210,6 +1274,9 @@ function savePlayDateDetails_(params) {
         sheet.getRange(row, 8).setValue(capacity === null ? "" : capacity);
       }
     }
+    if (priceProvided) {
+      writeBillingDatePrice_(playDate, price, getBillingActor_(params));
+    }
     // A higher (or removed) limit opens spots for the waitlist right away.
     const promoted = capacityProvided ? promoteWaitlistForDate_(playDate, capacity) : [];
     const dateDetails = getOpenDatesDetailed_();
@@ -1221,6 +1288,7 @@ function savePlayDateDetails_(params) {
       startTime,
       endTime,
       capacity: saved ? saved.capacity : null,
+      price: saved ? saved.price : null,
       promoted,
       dates: getOpenDates_(),
       dateDetails,
@@ -2136,6 +2204,8 @@ function getBillingMonth_(month, includeDiagnostics) {
     payments: getBillingPayments_(month),
     adjustments: getBillingAdjustments_(month),
     monthStatus: getBillingMonthStatus_(month),
+    datePrices: getBillingDatePrices_(month),
+    paymentRecords: getBillingPaymentRecords_(month),
   };
 
   if (includeDiagnostics) {
@@ -2193,6 +2263,20 @@ function getBillingMonths_(includeEditable) {
       monthSet,
       getBillingMonthStatusSheet_(),
       1,
+      currentMonth,
+      false,
+    );
+    addBillingMonthsFromSheet_(
+      monthSet,
+      getBillingDatePriceSheet_(),
+      2,
+      currentMonth,
+      false,
+    );
+    addBillingMonthsFromSheet_(
+      monthSet,
+      getBillingPaymentRecordSheet_(),
+      2,
       currentMonth,
       false,
     );
@@ -2854,6 +2938,160 @@ function removeBillingAdjustment_(params) {
   }
 }
 
+function saveBillingDatePrice_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const playDate = normalizeDate_(required_(params.date, "Missing play date"));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(playDate)) {
+      throw new Error("Enter a valid play date");
+    }
+    return writeBillingDatePrice_(
+      playDate,
+      parseDatePrice_(params.price),
+      getBillingActor_(params),
+    );
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Callers hold the script lock. A null price clears the date (free).
+function writeBillingDatePrice_(playDate, price, actor) {
+  const sheet = getBillingDatePriceSheet_();
+  const row = findBillingDatePriceRow_(sheet, playDate);
+  const values = [
+    playDate,
+    playDate.slice(0, 7),
+    price === null ? "" : price,
+    new Date().toISOString(),
+    actor,
+  ];
+
+  if (row) {
+    sheet.getRange(row, 1, 1, values.length).setValues([values]);
+  } else {
+    sheet.appendRow(values);
+  }
+
+  return { date: playDate, price };
+}
+
+function saveBillingPaymentRecord_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const month = required_(params.month, "Missing billing month");
+    validateMonth_(month);
+    const playerName = sanitizeText_(
+      required_(params.playerName, "Missing player name").trim(),
+    );
+    validatePlayerName_(playerName);
+    const amount = parseMoneyNumber_(
+      required_(params.amount, "Missing payment amount"),
+      "Payment amount must be a number",
+    );
+    if (amount <= 0) {
+      throw new Error("Payment amount must be more than $0");
+    }
+    const paidOn = normalizeDate_(params.paidOn || formatDate_(new Date()));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) {
+      throw new Error("Enter a valid payment date");
+    }
+    const actor = getBillingActor_(params);
+    const now = new Date().toISOString();
+    const values = [
+      Utilities.getUuid(),
+      month,
+      paidOn,
+      playerName,
+      amount,
+      normalizePaymentMethod_(params.method),
+      sanitizeText_(params.note || ""),
+      "active",
+      now,
+      now,
+      actor,
+      actor,
+    ];
+    getBillingPaymentRecordSheet_().appendRow(values);
+
+    return billingPaymentRecordRowToRecord_(values);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function removeBillingPaymentRecord_(params) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const id = required_(params.id, "Missing payment id");
+    const sheet = getBillingPaymentRecordSheet_();
+    const row = findBillingRowById_(sheet, id);
+    if (!row) {
+      throw new Error("Payment was not found");
+    }
+
+    sheet.getRange(row, 8).setValue("canceled");
+    sheet.getRange(row, 10).setValue(new Date().toISOString());
+    sheet.getRange(row, 12).setValue(getBillingActor_(params));
+
+    return billingPaymentRecordRowToRecord_(
+      sheet.getRange(row, 1, 1, BILLING_PAYMENT_RECORD_HEADERS.length).getValues()[0],
+    );
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// { "2026-10-01": 10, ... } for every date with a saved price. Later rows win
+// when a date is duplicated.
+function getBillingDatePriceMap_() {
+  const sheet = getBillingDatePriceSheet_();
+  const lastRow = sheet.getLastRow();
+  const prices = {};
+  if (lastRow < 2) {
+    return prices;
+  }
+
+  sheet
+    .getRange(2, 1, lastRow - 1, 3)
+    .getValues()
+    .forEach((row) => {
+      const date = normalizeDate_(row[0]);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        prices[date] = parseStoredDatePrice_(row[2]);
+      }
+    });
+  return prices;
+}
+
+function getBillingDatePrices_(month) {
+  const prices = getBillingDatePriceMap_();
+  return Object.keys(prices)
+    .filter((date) => date.indexOf(`${month}-`) === 0 && prices[date] !== null)
+    .sort()
+    .map((date) => ({ date, price: prices[date] }));
+}
+
+function getBillingPaymentRecords_(month) {
+  const sheet = getBillingPaymentRecordSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+
+  return sheet
+    .getRange(2, 1, lastRow - 1, BILLING_PAYMENT_RECORD_HEADERS.length)
+    .getValues()
+    .filter((row) => normalizeMonth_(row[1]) === month)
+    .map(billingPaymentRecordRowToRecord_);
+}
+
 function getBillingAttendance_(month) {
   validateMonth_(month);
   const sheet = getSheet_();
@@ -3126,6 +3364,18 @@ function billingMonthStatusRowToStatus_(row) {
   };
 }
 
+function billingPaymentRecordRowToRecord_(row) {
+  return {
+    id: String(row[0] || ""),
+    paidOn: normalizeDate_(row[2]),
+    playerName: String(row[3] || ""),
+    amount: parseStoredNumber_(row[4]),
+    method: String(row[5] || ""),
+    note: String(row[6] || ""),
+    status: normalizeBillingStatus_(row[7] || "active"),
+  };
+}
+
 function getBillingCourtSheet_() {
   const sheet = getBillingSheet_(BILLING_COURT_SHEET_NAME, BILLING_COURT_HEADERS);
   formatBillingMonthColumn_(sheet, 2);
@@ -3153,6 +3403,26 @@ function getBillingMonthStatusSheet_() {
     BILLING_MONTH_STATUS_HEADERS,
   );
   formatBillingMonthColumn_(sheet, 1);
+  return sheet;
+}
+
+function getBillingDatePriceSheet_() {
+  const sheet = getBillingSheet_(
+    BILLING_DATE_PRICE_SHEET_NAME,
+    BILLING_DATE_PRICE_HEADERS,
+  );
+  // Date and Month stay plain text so Sheets never turns them into dates.
+  sheet.getRange(1, 1, sheet.getMaxRows(), 2).setNumberFormat("@");
+  return sheet;
+}
+
+function getBillingPaymentRecordSheet_() {
+  const sheet = getBillingSheet_(
+    BILLING_PAYMENT_RECORD_SHEET_NAME,
+    BILLING_PAYMENT_RECORD_HEADERS,
+  );
+  // Month and Paid On stay plain text so Sheets never turns them into dates.
+  sheet.getRange(1, 2, sheet.getMaxRows(), 2).setNumberFormat("@");
   return sheet;
 }
 
@@ -3213,6 +3483,21 @@ function findBillingMonthRow_(sheet, month) {
   const rows = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let index = 0; index < rows.length; index += 1) {
     if (normalizeMonth_(rows[index][0]) === month) {
+      return index + 2;
+    }
+  }
+  return null;
+}
+
+function findBillingDatePriceRow_(sheet, playDate) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return null;
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let index = 0; index < rows.length; index += 1) {
+    if (normalizeDate_(rows[index][0]) === playDate) {
       return index + 2;
     }
   }
@@ -3367,6 +3652,39 @@ function parseSignedMoneyNumber_(value, message) {
     throw new Error(message);
   }
   return Math.round(number * 100) / 100;
+}
+
+// Price per spot typed by an admin: blank = no price (the date is free),
+// otherwise dollars >= 0 rounded to cents.
+function parseDatePrice_(value) {
+  const text = String(value === undefined || value === null ? "" : value)
+    .replace(/[$,\s]/g, "");
+  if (!text) {
+    return null;
+  }
+  const number = Number(text);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error("Price must be a dollar amount, or blank for free");
+  }
+  return Math.round(number * 100) / 100;
+}
+
+function parseStoredDatePrice_(value) {
+  if (value instanceof Date) {
+    return null;
+  }
+  const text = String(value === undefined || value === null ? "" : value)
+    .replace(/[$,\s]/g, "");
+  const number = Number(text);
+  return text && Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function normalizePaymentMethod_(value) {
+  const text = normalize_(value);
+  const method = BILLING_PAYMENT_METHODS.find(
+    (candidate) => normalize_(candidate) === text,
+  );
+  return method || "Other";
 }
 
 function parseStoredNumber_(value) {

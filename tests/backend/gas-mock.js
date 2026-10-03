@@ -64,6 +64,10 @@ class FakeSheet {
     return last;
   }
 
+  getMaxRows() {
+    return Math.max(this.data.length, 1000);
+  }
+
   getLastColumn() {
     return this.data.reduce((max, line) => {
       let last = 0;
@@ -117,6 +121,7 @@ class FakeSpreadsheet {
 //   globals:   extra/replacement Apps Script services (e.g. a real cache)
 function loadBackend(file, spreadsheet, startTime = Date.UTC(2026, 8, 23, 17, 0, 0), overrides = {}) {
   let clock = startTime;
+  let uuid = 0;
   const RealDate = Date;
   class FakeDate extends RealDate {
     constructor(...args) {
@@ -140,7 +145,10 @@ function loadBackend(file, spreadsheet, startTime = Date.UTC(2026, 8, 23, 17, 0,
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     CacheService: { getScriptCache: () => ({ get: () => null, put() {}, remove() {} }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
-    Utilities: { formatDate: (date) => date.toISOString().slice(0, 10) },
+    Utilities: {
+      formatDate: (date) => date.toISOString().slice(0, 10),
+      getUuid: () => `uuid-${(uuid += 1)}`,
+    },
     Session: { getScriptTimeZone: () => "America/Los_Angeles" },
     ContentService: {
       createTextOutput: (text) => ({ text, setMimeType() { return this; } }),

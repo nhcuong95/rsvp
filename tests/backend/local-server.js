@@ -6,6 +6,7 @@
 //   http://localhost:8770/?date=2026-09-24  RSVP page (seeded: max 4, 2 waiting)
 //   http://localhost:8770/?date=2026-10-08  23 players with positions/scores (Make teams)
 //   http://localhost:8770/__login-admin     sign this browser in as admin
+//   http://localhost:8770/billing.html      October billing with per-date prices
 //   http://localhost:8770/__sheet           current RSVPs sheet as JSON
 //
 // Nothing touches the real Google Sheet; data resets on restart.
@@ -85,6 +86,24 @@ NAMES.slice(0, 22).forEach((name, index) => {
     });
   }
 });
+
+// October billing (Billing page, admin): 10/01 at $10 and 10/08 at $12 per
+// person, 10/03 has RSVPs but no price (free). Two payments are already in.
+ss.getSheetByName("RSVP Dates").data.push(["2026-10-03", "", "admin", "Lower Woodland #2", "", "8:00 AM", "10:00 AM", ""]);
+["Anh Tran", "Binh Le", "Chau Vo", "Dung Pham", "Em Ho"].forEach((name, index) =>
+  rsvpApp.call({ playDate: "2026-10-01", playerName: name, participantCount: index === 1 ? "2" : "1", vote: "Yes" }));
+["Anh Tran", "Chau Vo"].forEach((name) =>
+  rsvpApp.call({ playDate: "2026-10-03", playerName: name, participantCount: "1", vote: "Yes" }));
+adminApp.call({ action: "savePlayDateDetails", adminToken: ADMIN_TOKEN, playDate: "2026-10-01",
+  fieldName: "Washington Park Soccer", address: "1017 Lake Washington Blvd E, Seattle, WA 98112",
+  startTime: "8:30 PM", endTime: "10:30 PM", price: "10" });
+adminApp.call({ action: "saveBillingDatePrice", adminToken: ADMIN_TOKEN, date: "2026-10-08", price: "12" });
+adminApp.call({ action: "saveCourtBlock", adminToken: ADMIN_TOKEN, month: "2026-10", date: "2026-10-01",
+  startTime: "20:30", durationHours: "2", courts: "1", amount: "55", paidBy: "Anh Tran" });
+adminApp.call({ action: "saveBillingPaymentRecord", adminToken: ADMIN_TOKEN, month: "2026-10",
+  playerName: "Anh Tran", amount: "22", method: "Venmo", paidOn: "2026-10-02" });
+adminApp.call({ action: "saveBillingPaymentRecord", adminToken: ADMIN_TOKEN, month: "2026-10",
+  playerName: "Binh Le", amount: "10", method: "Zelle", paidOn: "2026-10-02", note: "half" });
 
 const TYPES = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",

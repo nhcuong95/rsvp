@@ -64,9 +64,12 @@ node .claude/skills/dues-message/generate-dues-message.js 2026-08 --venmo someha
 
 - The live path needs network access and Node 18+ (uses global `fetch`); it reads
   `APPS_SCRIPT_URL` straight from `billing.js` so it can't drift.
-- Payments are stored as one lump-sum credit per player, not per date, so the
-  message shows every date's fee plus paid/missing totals rather than labeling a
-  specific unpaid date.
+- From October 2026 on, dates are billed at their own price per person (no
+  price = free) and recorded payments reduce each balance, so paid members drop
+  out on their own. Earlier months use the field-cost split and Paid status.
+- Payments count toward the month, not a specific date, so the message shows
+  every date's fee plus paid/missing totals rather than labeling a specific
+  unpaid date.
 - If everyone is paid up, the script says so instead of printing an empty list.
 - This produces text for a human to paste. There is no supported way to have a
   bot auto-post into a Messenger group chat; posting stays a manual send.

@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Billing</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20261001-1" />
+    <link rel="stylesheet" href="./styles.css?v=20261002-1" />
   </head>
   <body>
     <main class="shell billing-shell">
@@ -92,6 +92,8 @@
           <nav class="billing-tabs" aria-label="Billing sections">
             <a href="#member-detail-section">My Bill</a>
             <a href="#member-section">Members</a>
+            <a class="priced-only" href="#price-section" hidden>Game Prices</a>
+            <a class="priced-only" href="#payment-section" hidden>Payments</a>
             <a class="admin-only" href="#court-section">Field Fees</a>
             <a class="admin-only" href="#birdie-section">Extras</a>
           </nav>
@@ -114,7 +116,7 @@
                 <div id="member-detail" class="billing-detail-list"></div>
               </section>
 
-              <details id="member-section" class="billing-band billing-details-band">
+              <details id="member-section" class="billing-band billing-details-band" open>
                 <summary class="billing-band-summary">
                   <span>
                     <strong>Member Billing</strong>
@@ -125,7 +127,7 @@
                   <button id="copy-dues-button" class="secondary-button" type="button">
                     Copy dues for Messenger
                   </button>
-                  <button id="mark-month-paid-button" class="secondary-button" type="button">
+                  <button id="mark-month-paid-button" class="secondary-button legacy-only" type="button">
                     Mark Month Paid
                   </button>
                 </div>
@@ -136,6 +138,62 @@
               </details>
 
               <section id="overview-section" class="billing-summary-grid" aria-label="Billing summary"></section>
+
+              <section id="price-section" class="billing-band priced-only" aria-labelledby="price-heading" hidden>
+                <div class="billing-band-header">
+                  <div>
+                    <h2 id="price-heading">Game Prices</h2>
+                    <p>Each spot (guests included) pays the date's price. A date with no price is free.</p>
+                  </div>
+                </div>
+                <p id="price-feedback" class="section-status" role="status" aria-live="polite"></p>
+                <div class="table-wrap">
+                  <table id="price-table" class="export-table billing-table compact-billing-table"></table>
+                </div>
+              </section>
+
+              <section id="payment-section" class="billing-band priced-only" aria-labelledby="payment-heading" hidden>
+                <div class="billing-band-header">
+                  <div>
+                    <h2 id="payment-heading">Payments</h2>
+                    <p>Record money as it comes in. Balances settle within the month.</p>
+                  </div>
+                </div>
+                <p id="payment-feedback" class="section-status" role="status" aria-live="polite"></p>
+
+                <form id="payment-form" class="billing-inline-form payment-record-form">
+                  <label class="field">
+                    <span>Paid On</span>
+                    <input id="payment-date" type="date" required />
+                  </label>
+                  <label class="field">
+                    <span>Player</span>
+                    <select id="payment-player" required></select>
+                  </label>
+                  <label class="field">
+                    <span>Amount</span>
+                    <input id="payment-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required />
+                  </label>
+                  <label class="field">
+                    <span>Method</span>
+                    <select id="payment-method" required>
+                      <option value="Venmo">Venmo</option>
+                      <option value="Zelle">Zelle</option>
+                      <option value="Cash">Cash</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Note</span>
+                    <input id="payment-note" type="text" placeholder="Optional" autocomplete="off" />
+                  </label>
+                  <button type="submit">+ Record Payment</button>
+                </form>
+
+                <div class="table-wrap">
+                  <table id="payment-table" class="export-table billing-table compact-billing-table"></table>
+                </div>
+              </section>
 
               <section id="court-section" class="billing-band admin-only" aria-labelledby="court-heading">
               <div class="billing-band-header">
@@ -257,6 +315,6 @@
 
     <script src="./admin-auth.js?v=20260915-1"></script>
     <script src="./billing-parser.js?v=20260627-5"></script>
-    <script src="./billing.js?v=20260912-4"></script>
+    <script src="./billing.js?v=20261002-1"></script>
   </body>
 </html>

@@ -4,6 +4,8 @@ const AUDIT_SHEET_NAME = "RSVP Audit Log";
 const LOCKS_SHEET_NAME = "Roster Locks";
 const LOCKS_HEADERS = ["Play Date", "Locked", "Updated At", "Updated By"];
 const OPEN_DATES_SHEET_NAME = "RSVP Dates";
+// Written by the admin backend; read here only to show the price per person.
+const BILLING_DATE_PRICE_SHEET_NAME = "Billing Date Prices";
 const OPEN_DATES_HEADERS = [
   "Play Date",
   "Added At",
@@ -618,7 +620,7 @@ function getOpenDates_() {
 // time so the RSVP page can show players where and when to play. Shape:
 // [{ date: "2026-09-24", fieldName: "Magnuson Park Field #6",
 //    address: "7400 Sand Point Way NE", startTime: "8:00 PM", endTime: "10:00 PM",
-//    capacity: 24 }]  (capacity is null when no limit is set).
+//    capacity: 24, price: 10 }]  (capacity/price are null when unset).
 function getOpenDatesDetailed_() {
   const sheet = getOpenDatesSheet_();
   const lastRow = sheet.getLastRow();
@@ -626,6 +628,7 @@ function getOpenDatesDetailed_() {
     return [];
   }
   const rows = sheet.getRange(2, 1, lastRow - 1, OPEN_DATES_HEADERS.length).getValues();
+  const prices = getDatePriceMap_();
   const byDate = {};
   rows.forEach((row) => {
     const date = normalizeDate_(row[0]);
@@ -637,12 +640,36 @@ function getOpenDatesDetailed_() {
         startTime: formatTimeCellValue_(row[5]),
         endTime: formatTimeCellValue_(row[6]),
         capacity: parseCapacity_(row[7]),
+        price: prices[date] === undefined ? null : prices[date],
       };
     }
   });
   return Object.keys(byDate)
     .sort()
     .map((date) => byDate[date]);
+}
+
+// { "2026-10-01": 10, ... } from the admin backend's price sheet; a cleared
+// price reads as null. Missing sheet = no prices yet.
+function getDatePriceMap_() {
+  const sheet = getSpreadsheet_().getSheetByName(BILLING_DATE_PRICE_SHEET_NAME);
+  const prices = {};
+  if (!sheet || sheet.getLastRow() < 2) {
+    return prices;
+  }
+  sheet
+    .getRange(2, 1, sheet.getLastRow() - 1, 3)
+    .getValues()
+    .forEach((row) => {
+      const date = normalizeDate_(row[0]);
+      const text = String(row[2] === undefined || row[2] === null ? "" : row[2])
+        .replace(/[$,\s]/g, "");
+      const price = Number(text);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        prices[date] = text && Number.isFinite(price) && price >= 0 ? price : null;
+      }
+    });
+  return prices;
 }
 
 // Sheets can store a picked time ("8:00 PM") as a datetime value, which reads

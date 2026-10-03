@@ -114,6 +114,7 @@
   const adminStartTime = document.querySelector("#admin-start-time");
   const adminEndTime = document.querySelector("#admin-end-time");
   const adminCapacity = document.querySelector("#admin-capacity");
+  const adminPrice = document.querySelector("#admin-price");
   const adminSaveDateDetails = document.querySelector("#admin-save-date-details");
   const dateInfo = document.querySelector("#date-info");
   const dateInfoLocation = document.querySelector("#date-info-location");
@@ -121,6 +122,8 @@
   const dateInfoMap = document.querySelector("#date-info-map");
   const dateInfoTime = document.querySelector("#date-info-time");
   const dateInfoTimeText = document.querySelector("#date-info-time-text");
+  const dateInfoPrice = document.querySelector("#date-info-price");
+  const dateInfoPriceText = document.querySelector("#date-info-price-text");
   const dateInfoWeather = document.querySelector("#date-info-weather");
   const dateInfoWeatherIcon = document.querySelector("#date-info-weather-icon");
   const dateInfoWeatherText = document.querySelector("#date-info-weather-text");
@@ -805,6 +808,7 @@
           startTime: String(entry.startTime || "").trim(),
           endTime: String(entry.endTime || "").trim(),
           capacity: parseCapacity(entry.capacity),
+          price: parsePrice(entry.price),
         });
       }
     });
@@ -816,6 +820,21 @@
     return Number.isFinite(count) && count > 0 ? count : null;
   }
 
+  // Price per person in dollars, or null when the admin has not set one.
+  function parsePrice(value) {
+    const text = String(value ?? "").replace(/[$,\s]/g, "");
+    const price = Number(text);
+    return text && Number.isFinite(price) && price >= 0 ? price : null;
+  }
+
+  // "$10/person", "$12.50/person", or "Free" for a $0 price.
+  function formatPrice(price) {
+    if (price === 0) {
+      return "Free";
+    }
+    return `$${Number.isInteger(price) ? price : price.toFixed(2)}/person`;
+  }
+
   function getDateDetail(playDate) {
     return (
       dateDetailsByDate.get(playDate) || {
@@ -824,6 +843,7 @@
         startTime: "",
         endTime: "",
         capacity: null,
+        price: null,
       }
     );
   }
@@ -842,12 +862,13 @@
     if (!dateInfo) {
       return;
     }
-    const { fieldName, address, startTime, endTime } = getDateDetail(dateInput.value);
+    const { fieldName, address, startTime, endTime, price } = getDateDetail(dateInput.value);
     const locationLabel = [fieldName, address].filter(Boolean).join(" · ");
     const mapQuery = [fieldName, address].filter(Boolean).join(", ");
     const timeLabel = formatTimeRange(startTime, endTime);
     const hasLocation = Boolean(locationLabel);
     const hasTime = Boolean(timeLabel);
+    const hasPrice = price !== null;
 
     if (dateInfoLocation) {
       dateInfoLocation.hidden = !hasLocation;
@@ -869,8 +890,14 @@
         dateInfoTimeText.textContent = timeLabel;
       }
     }
+    if (dateInfoPrice) {
+      dateInfoPrice.hidden = !hasPrice;
+      if (dateInfoPriceText) {
+        dateInfoPriceText.textContent = hasPrice ? formatPrice(price) : "";
+      }
+    }
     const hasWeather = renderGameTimeWeather(dateInput.value);
-    dateInfo.hidden = !(hasLocation || hasTime || hasWeather);
+    dateInfo.hidden = !(hasLocation || hasTime || hasPrice || hasWeather);
   }
 
   // Fill the game-time weather row in the date info box. Returns whether
@@ -932,7 +959,7 @@
   // Paste-ready message for the group chat: date, time, field, weather,
   // headcount, and a link that opens this date. Lines without data are skipped.
   function buildInviteText(playDate) {
-    const { fieldName, address, startTime, endTime } = getDateDetail(playDate);
+    const { fieldName, address, startTime, endTime, price } = getDateDetail(playDate);
     const lines = [`⚽ Soccer · ${formatShortDisplayDate(playDate)}`];
     const time = formatTimeRange(startTime, endTime);
     if (time) {
@@ -941,6 +968,9 @@
     const place = [fieldName, address].filter(Boolean).join(" · ");
     if (place) {
       lines.push(`📍 ${place}`);
+    }
+    if (price !== null) {
+      lines.push(`💵 ${formatPrice(price)}`);
     }
     // Prefer the game-time forecast; fall back to the day's summary when the
     // date has no time saved (or is beyond the hourly forecast).
@@ -1261,7 +1291,7 @@
   // Keep the admin inputs in sync with the selected date, unless the admin is
   // actively editing a text field (don't clobber mid-typing).
   function prefillAdminDateDetails() {
-    const { fieldName, address, startTime, endTime, capacity } = getDateDetail(dateInput.value);
+    const { fieldName, address, startTime, endTime, capacity, price } = getDateDetail(dateInput.value);
     if (adminFieldName && document.activeElement !== adminFieldName) {
       adminFieldName.value = fieldName;
     }
@@ -1276,6 +1306,9 @@
     }
     if (adminCapacity && document.activeElement !== adminCapacity) {
       adminCapacity.value = capacity === null ? "" : String(capacity);
+    }
+    if (adminPrice && document.activeElement !== adminPrice) {
+      adminPrice.value = price === null ? "" : String(price);
     }
   }
 
@@ -1558,6 +1591,12 @@
       setStatus("Max players must be a whole number, or blank for no limit.", "error");
       return;
     }
+    const priceText = (adminPrice?.value || "").trim();
+    const price = parsePrice(priceText);
+    if (priceText && price === null) {
+      setStatus("Price must be a dollar amount, or blank for free.", "error");
+      return;
+    }
     const originalLabel = adminSaveDateDetails.textContent;
     adminSaveDateDetails.disabled = true;
     adminSaveDateDetails.textContent = "Saving...";
@@ -1571,11 +1610,12 @@
         startTime,
         endTime,
         capacity: capacityText,
+        price: priceText,
       });
       if (result.dateDetails) {
         setDateDetails(result.dateDetails);
       } else {
-        dateDetailsByDate.set(playDate, { fieldName, address, startTime, endTime, capacity });
+        dateDetailsByDate.set(playDate, { fieldName, address, startTime, endTime, capacity, price });
       }
       if (Array.isArray(result.dates)) {
         openDates = result.dates

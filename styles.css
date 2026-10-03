@@ -1172,6 +1172,16 @@ button:disabled {
   min-width: 0;
 }
 
+.payment-record-form {
+  grid-template-columns:
+    minmax(130px, 0.7fr)
+    minmax(170px, 1fr)
+    minmax(100px, 0.5fr)
+    minmax(110px, 0.55fr)
+    minmax(150px, 1fr)
+    auto;
+}
+
 .billing-table {
   width: 100%;
   min-width: 980px;
@@ -1233,6 +1243,24 @@ button:disabled {
   text-align: right;
 }
 
+.billing-table.compact-billing-table {
+  min-width: 640px;
+}
+
+.price-input-group {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.price-input-group input {
+  width: 92px;
+  min-height: 34px;
+  padding: 5px 8px;
+  text-align: right;
+}
+
 .billing-clean-wrap {
   border-radius: 0 0 8px 8px;
 }
@@ -1261,6 +1289,21 @@ button:disabled {
 .billing-badge.review {
   background: #fef3c7;
   color: #a15c07;
+}
+
+.billing-badge.owed {
+  background: #fee2e2;
+  color: var(--error);
+}
+
+.billing-badge.credit {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.billing-badge.muted {
+  background: var(--surface);
+  color: var(--muted);
 }
 
 .inline-action {
@@ -2577,6 +2620,25 @@ body.is-admin .non-admin-only {
   .billing-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  /* Keep the price inputs on screen: drop the totals columns and padding. */
+  #price-table {
+    min-width: 0;
+  }
+
+  #price-table th,
+  #price-table td {
+    min-width: 0;
+    padding: 12px 6px;
+  }
+
+  #price-table .optional-price-column {
+    display: none;
+  }
+
+  #price-table .price-input-group input {
+    width: 64px;
   }
 
   .billing-metric {

@@ -41,6 +41,10 @@ const path = require("path");
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const DATA_DIR = path.join(REPO_ROOT, "data");
 const FETCH_TIMEOUT_MS = 30000;
+// Matches billing.js PER_DATE_PRICING_FROM: from this month on each date is
+// billed at its own price per person (no price = free), field bookings are not
+// credited, and recorded payments reduce the balance.
+const PER_DATE_PRICING_FROM = "2026-10";
 
 // Defaults match billing.js (VENMO_RECIPIENT_USERNAME / VENMO_RECIPIENT_NAME).
 const DEFAULTS = {
@@ -221,6 +225,10 @@ async function fetchBillingMonth(monthKey) {
 
 function membersFromBilling(billing) {
   const monthKey = billing.month;
+  const priced = monthKey >= PER_DATE_PRICING_FROM;
+  const datePrices = new Map(
+    (billing.datePrices || []).map((entry) => [entry.date, Number(entry.price || 0)]),
+  );
   const members = new Map();
   const ensure = (name) => {
     if (!members.has(name)) {
@@ -228,8 +236,10 @@ function membersFromBilling(billing) {
         name,
         weightedSpots: 0,
         courtFee: 0,
+        dateFee: 0,
         birdieFee: 0,
         credits: 0,
+        paid: 0,
         attendance: [],
       });
     }
@@ -245,7 +255,7 @@ function membersFromBilling(billing) {
       block.date,
       (courtByDate.get(block.date) || 0) + Number(block.amount || 0),
     );
-    if (block.paidBy) {
+    if (block.paidBy && !priced) {
       ensure(block.paidBy).credits += Number(block.amount || 0);
     }
   });
@@ -269,21 +279,31 @@ function membersFromBilling(billing) {
       ensure(adjustment.playerName).credits += Number(adjustment.amount || 0);
     });
 
+  (billing.paymentRecords || [])
+    .filter((record) => record.status !== "canceled")
+    .forEach((record) => {
+      ensure(record.playerName).paid += Number(record.amount || 0);
+    });
+
   let totalWeightedSpots = 0;
   (billing.attendance || []).forEach((day) => {
     const weight = dateWeight(day.date);
     const daySpots = day.players.reduce((sum, player) => sum + player.spots, 0);
     totalWeightedSpots += daySpots * weight;
-    const courtPerSpot = daySpots > 0 ? (courtByDate.get(day.date) || 0) / daySpots : 0;
+    const courtPerSpot =
+      !priced && daySpots > 0 ? (courtByDate.get(day.date) || 0) / daySpots : 0;
+    const price = priced ? datePrices.get(day.date) || 0 : 0;
     day.players.forEach((player) => {
       const member = ensure(player.name);
       member.weightedSpots += player.spots * weight;
       member.courtFee += courtPerSpot * player.spots;
+      member.dateFee += price * player.spots;
       member.attendance.push({
         date: day.date,
         spots: player.spots,
         weight,
         courtPerSpot,
+        price,
       });
     });
   });
@@ -297,24 +317,26 @@ function membersFromBilling(billing) {
 
   const list = [...members.values()].map((member) => {
     member.birdieFee = member.weightedSpots * birdiePerWeightedSpot;
-    member.netBalance = member.courtFee + member.birdieFee - member.credits;
+    member.netBalance =
+      member.courtFee + member.dateFee + member.birdieFee - member.credits - member.paid;
     return {
       name: member.name,
-      courtFee: member.courtFee,
+      courtFee: member.courtFee + member.dateFee,
       birdieFee: member.birdieFee,
       netBalance: member.netBalance,
       attendance: member.attendance.map((entry) => ({
         date: entry.date,
         spots: entry.spots,
         fee:
-          entry.courtPerSpot * entry.spots +
+          (entry.courtPerSpot + entry.price) * entry.spots +
           entry.spots * entry.weight * birdiePerWeightedSpot,
       })),
     };
   });
 
+  // Priced months settle by balance alone; older months use the Paid status.
   const paidNames = new Set(
-    (billing.payments || [])
+    (priced ? [] : billing.payments || [])
       .filter((payment) => String(payment.status).toLowerCase() === "paid")
       .map((payment) => String(payment.playerName).trim().toLowerCase()),
   );
@@ -349,7 +371,7 @@ function buildDuesMessage(members, meta, options, extraPaid) {
     const played = (member.attendance || [])
       .slice()
       .sort((first, second) => first.date.localeCompare(second.date))
-      .map((entry) => `${monthDay(entry.date)} (${formatMoney(entry.fee)})`)
+      .map((entry) => `${monthDay(entry.date)} (${entry.fee > 0.005 ? formatMoney(entry.fee) : "free"})`)
       .join(", ");
     const gross = round(Number(member.courtFee || 0) + Number(member.birdieFee || 0));
     const paid = round(gross - Number(member.netBalance || 0));
