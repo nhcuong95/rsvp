@@ -119,6 +119,11 @@
   const legacyPaidNotice = document.querySelector("#legacy-paid-notice");
   const legacyPaidText = document.querySelector("#legacy-paid-text");
   const legacyPaidButton = document.querySelector("#legacy-paid-button");
+  const paymentImportText = document.querySelector("#payment-import-text");
+  const paymentImportCheck = document.querySelector("#payment-import-check");
+  const paymentImportRecord = document.querySelector("#payment-import-record");
+  const paymentImportTable = document.querySelector("#payment-import-table");
+  const paymentImportFeedback = document.querySelector("#payment-import-feedback");
 
   let attendanceRows = [];
   let billing = null;
@@ -2124,18 +2129,12 @@
   }
 
   // Players marked Paid on the old field-split bill (months before per-date
-  // prices) who have no payment recorded yet, with what that bill asked.
+  // prices) and how much of that bill no recorded payment covers yet. The
+  // old-bill balance already subtracts payments recorded for the month, so
+  // payments imported first (e.g. from Zelle) are never counted twice.
   function getLegacyPaidEntries() {
-    const recorded = new Set(
-      getPaymentRecords()
-        .filter((record) => record.status !== "canceled")
-        .map((record) => record.playerName),
-    );
     return calculateBilling({ priced: false })
-      .members.filter(
-        (member) =>
-          normalizeText(getPaymentStatus(member.name)) === "paid" && !recorded.has(member.name),
-      )
+      .members.filter((member) => normalizeText(getPaymentStatus(member.name)) === "paid")
       .map((member) => ({ name: member.name, amount: roundMoney(member.netBalance) }))
       .filter((entry) => entry.amount > 0.005);
   }
@@ -2149,9 +2148,9 @@
     const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
     legacyPaidText.textContent = `${entries.length} player${
       entries.length === 1 ? " was" : "s were"
-    } marked Paid on the old field-split bill (${formatMoney(
+    } marked Paid on the old field-split bill, but recorded payments don't cover it yet (${formatMoney(
       total,
-    )} in all), with no payment recorded here yet. Record those amounts so they only owe or get back the difference.`;
+    )} in all). Record the rest so they only owe or get back the difference.`;
   }
 
   async function handleRecordLegacyPaid() {
@@ -2163,13 +2162,13 @@
     const list = entries.map((entry) => `${entry.name}: ${formatMoney(entry.amount)}`).join("\n");
     if (
       !window.confirm(
-        `Record these ${formatMonthLabel(month)} payments (each player's old bill, marked Paid)?\n\n${list}`,
+        `Record these ${formatMonthLabel(month)} payments (what's left of each player's old bill, marked Paid)?\n\n${list}`,
       )
     ) {
       return;
     }
     const paidOn = getMonthEndDateValue();
-    const note = "Paid old field-split bill";
+    const note = "Marked Paid on old field-split bill";
 
     if (!backendAvailable || !adminToken) {
       setPaymentRecords([
@@ -2222,6 +2221,192 @@
         : `Recorded ${done} old payments.`,
       failure ? "error" : "success",
     );
+  }
+
+  // Bulk import: one payment per line, "month | paid on | player | amount |
+  // method | note" (tabs work too), e.g. from a bank's Zelle history.
+  let paymentImportRows = [];
+
+  function parsePaymentImport(text) {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+      .map((line) => {
+        const [month = "", paidOn = "", playerName = "", amountText = "", method = "", ...note] =
+          line.split(/\s*[|\t]\s*/);
+        const amount = roundMoney(Number(amountText.replace(/[$,]/g, "")));
+        const knownMethod = ["Venmo", "Zelle", "Cash", "Other"].find(
+          (candidate) => normalizeText(candidate) === normalizeText(method),
+        );
+        let problem = "";
+        if (!/^\d{4}-\d{2}$/.test(month)) {
+          problem = "Month should look like 2026-09";
+        } else if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) {
+          problem = "Paid on should look like 2026-09-11";
+        } else if (!playerName) {
+          problem = "Missing player";
+        } else if (!(amount > 0)) {
+          problem = "Amount should be more than $0";
+        }
+        return {
+          month,
+          paidOn,
+          playerName,
+          amount,
+          method: knownMethod || "Other",
+          note: note.join(" | "),
+          problem,
+          state: problem ? "invalid" : "new",
+          warning: "",
+        };
+      });
+  }
+
+  function paymentImportKey(entry) {
+    return [entry.month, normalizeText(entry.playerName), Number(entry.amount).toFixed(2), entry.paidOn].join("|");
+  }
+
+  function renderPaymentImport() {
+    const labels = {
+      new: ["Will record", "review"],
+      done: ["Recorded", "paid"],
+      duplicate: ["Already recorded", "muted"],
+      invalid: ["Fix line", "owed"],
+      failed: ["Failed", "owed"],
+    };
+    paymentImportTable.hidden = !paymentImportRows.length;
+    renderTable(
+      paymentImportTable,
+      ["Month", "Paid On", "Player", "Amount", "Method", "Note", "Status"],
+      paymentImportRows.map((entry) => {
+        const [label, tone] = labels[entry.state];
+        const status = makeBadge(label, tone);
+        const detail = entry.problem || entry.warning;
+        if (detail) {
+          status.append(createCell("small", ` ${detail}`, "field-help"));
+        }
+        return [
+          { text: formatMonthLabel(entry.month), className: "name-cell" },
+          { text: entry.paidOn },
+          { text: entry.playerName },
+          { text: formatMoney(entry.amount), className: "numeric-cell" },
+          { text: entry.method },
+          { text: entry.note },
+          status,
+        ];
+      }),
+    );
+    const pending = paymentImportRows.filter((entry) => entry.state === "new");
+    paymentImportRecord.disabled = !pending.length;
+    paymentImportRecord.textContent = pending.length
+      ? `Record ${pending.length} payment${pending.length === 1 ? "" : "s"} (${formatMoney(
+          pending.reduce((sum, entry) => sum + entry.amount, 0),
+        )})`
+      : "Record payments";
+  }
+
+  // Look up each month's saved payments and attendance so lines that are
+  // already recorded are skipped and unexpected names stand out.
+  async function handlePaymentImportCheck() {
+    paymentImportRows = parsePaymentImport(paymentImportText.value);
+    if (!paymentImportRows.length) {
+      setSectionStatus(paymentImportFeedback, "Paste at least one payment line.", "error");
+      renderPaymentImport();
+      return;
+    }
+    paymentImportCheck.disabled = true;
+    setSectionStatus(paymentImportFeedback, "Checking against saved payments...", "loading");
+    try {
+      const months = [...new Set(paymentImportRows.filter((entry) => !entry.problem).map((entry) => entry.month))];
+      for (const month of months) {
+        const monthBilling =
+          month === monthInput.value && backendBilling
+            ? backendBilling
+            : (await requestAppsScript({ action: "listBillingMonth", month, adminToken })).billing;
+        const existing = new Map();
+        (monthBilling.paymentRecords || [])
+          .filter((record) => record.status !== "canceled")
+          .forEach((record) => {
+            const key = paymentImportKey({ ...record, month });
+            existing.set(key, (existing.get(key) || 0) + 1);
+          });
+        const players = new Set(
+          (monthBilling.attendance || []).flatMap((day) =>
+            day.players.map((player) => normalizeText(player.name)),
+          ),
+        );
+        paymentImportRows
+          .filter((entry) => entry.month === month && !entry.problem)
+          .forEach((entry) => {
+            const key = paymentImportKey(entry);
+            if (existing.get(key) > 0) {
+              existing.set(key, existing.get(key) - 1);
+              entry.state = "duplicate";
+            } else {
+              entry.state = "new";
+            }
+            entry.warning = players.has(normalizeText(entry.playerName))
+              ? ""
+              : `Didn't play in ${formatMonthLabel(month)}`;
+          });
+      }
+      setSectionStatus(paymentImportFeedback, "Checked. Review the list, then record.", "success");
+    } catch (error) {
+      setSectionStatus(paymentImportFeedback, error.message, "error");
+    } finally {
+      paymentImportCheck.disabled = false;
+      renderPaymentImport();
+    }
+  }
+
+  async function handlePaymentImportRecord() {
+    const pending = paymentImportRows.filter((entry) => entry.state === "new");
+    if (!pending.length || !adminToken || !backendAvailable) {
+      return;
+    }
+    paymentImportRecord.disabled = true;
+    paymentImportCheck.disabled = true;
+    let done = 0;
+    for (const entry of pending) {
+      setSectionStatus(
+        paymentImportFeedback,
+        `Recording ${done + 1} of ${pending.length}...`,
+        "loading",
+      );
+      try {
+        // JSONP only: one attempt per payment, so a slow reply is never sent twice.
+        await requestViaJsonp({
+          action: "saveBillingPaymentRecord",
+          month: entry.month,
+          playerName: entry.playerName,
+          amount: entry.amount.toFixed(2),
+          method: entry.method,
+          paidOn: entry.paidOn,
+          note: entry.note,
+          adminToken,
+          actor: getRememberedPlayer(),
+        });
+        entry.state = "done";
+        done += 1;
+      } catch (error) {
+        entry.state = "failed";
+        entry.problem = error.message;
+      }
+      renderPaymentImport();
+    }
+    [...new Set(pending.map((entry) => entry.month))].forEach(clearBillingCache);
+    await loadBillingMonth(null, { forceRefresh: true });
+    paymentImportCheck.disabled = false;
+    const failed = pending.length - done;
+    setSectionStatus(
+      paymentImportFeedback,
+      failed
+        ? `Recorded ${done} of ${pending.length}. Click Check, then Record again to retry the rest.`
+        : `Recorded ${done} payments.`,
+      failed ? "error" : "success",
+    );
+    renderPaymentImport();
   }
 
   function renderPayments() {
@@ -3087,6 +3272,8 @@
   markMonthPaidButton.addEventListener("click", handleMarkMonthPaid);
   paymentForm.addEventListener("submit", handlePaymentSubmit);
   legacyPaidButton.addEventListener("click", handleRecordLegacyPaid);
+  paymentImportCheck.addEventListener("click", handlePaymentImportCheck);
+  paymentImportRecord.addEventListener("click", handlePaymentImportRecord);
   paymentPlayerInput.addEventListener("change", prefillPaymentAmount);
   copyDuesButton.addEventListener("click", handleCopyDues);
   memberSelect.addEventListener("change", () => renderMemberDetail(memberSelect.value));

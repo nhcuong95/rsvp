@@ -1192,6 +1192,40 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.payment-import {
+  display: grid;
+  gap: 10px;
+  margin: 0 16px;
+}
+
+.payment-import summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-weight: 850;
+}
+
+.payment-import p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.payment-import textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+.payment-import-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.payment-import .section-status {
+  margin: 0;
+}
+
 .payment-record-form {
   grid-template-columns:
     minmax(130px, 0.7fr)
