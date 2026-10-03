@@ -26,6 +26,7 @@ const NAMES = [
   "Anh Tran", "Binh Le", "Chau Vo", "Dung Pham", "Em Ho", "Phuc Ly", "Giang Do", "Hoa Mai",
   "Khoa Bui", "Long Dang", "Minh Ngo", "Nam Vu", "Oanh Ly", "Quan Ha", "Son Tran", "Tuan Le",
   "Uyen Pham", "Viet Do", "Xuan Mai", "Yen Ho", "Bao Lam", "Cuong Ta", "Dat Trinh", "Hieu Dinh",
+  "Cuong Tipu",
 ];
 ss.insertSheet("Roster").data = [
   ["Name", "Venmo", "Facebook", "Note", "Zelle"],
@@ -110,7 +111,8 @@ adminApp.call({ action: "saveBillingPaymentRecord", adminToken: ADMIN_TOKEN, mon
 // No prices yet, so the Billing page offers "Record as payments".
 const rsvpRows = ss.getSheetByName("RSVPs").data;
 [["2026-08-06", "Anh Tran", 1], ["2026-08-06", "Binh Le", 2], ["2026-08-06", "Chau Vo", 1],
-  ["2026-08-13", "Anh Tran", 1], ["2026-08-13", "Chau Vo", 1], ["2026-08-13", "Dung Pham", 1]]
+  ["2026-08-13", "Anh Tran", 1], ["2026-08-13", "Chau Vo", 1], ["2026-08-13", "Dung Pham", 1],
+  ["2026-08-06", "Cuong Tipu", 1], ["2026-08-13", "Cuong Tipu", 1]]
   .forEach(([date, name, spots]) =>
     rsvpRows.push([date, name, "Yes", spots, "2026-08-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z", ""]));
 adminApp.call({ action: "saveCourtBlock", adminToken: ADMIN_TOKEN, month: "2026-08", date: "2026-08-06",

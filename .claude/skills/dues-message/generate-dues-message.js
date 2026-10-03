@@ -223,7 +223,7 @@ async function fetchBillingMonth(monthKey) {
   return parsed.billing;
 }
 
-function membersFromBilling(billing) {
+function membersFromBilling(billing, collector) {
   const monthKey = billing.month;
   const priced = monthKey >= PER_DATE_PRICING_FROM;
   const datePrices = new Map(
@@ -317,6 +317,13 @@ function membersFromBilling(billing) {
 
   const list = [...members.values()].map((member) => {
     member.birdieFee = member.weightedSpots * birdiePerWeightedSpot;
+    // Matches billing.js: whoever collects the money doesn't owe themselves.
+    if (priced && member.name === collector) {
+      member.paid = Math.max(
+        member.paid,
+        member.dateFee + member.birdieFee - member.credits,
+      );
+    }
     member.netBalance =
       member.courtFee + member.dateFee + member.birdieFee - member.credits - member.paid;
     return {
@@ -407,7 +414,7 @@ async function main() {
   let source;
   if (resolved.mode === "live") {
     const billing = await fetchBillingMonth(resolved.monthKey);
-    source = membersFromBilling(billing);
+    source = membersFromBilling(billing, options.recipient);
     if (source.monthStatus && source.monthStatus !== "finalized") {
       process.stderr.write(
         `Note: ${resolved.monthKey} is still "${source.monthStatus}" (not finalized) — amounts may change.\n`,

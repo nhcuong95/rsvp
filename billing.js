@@ -1212,7 +1212,8 @@
             method: "Earlier entry",
             note: adjustment.note,
             status: "active",
-            isAdjustment: true,
+            isAutomatic: true,
+            label: "Earlier",
           });
         }
       });
@@ -1264,6 +1265,27 @@
 
     members.forEach((member) => {
       member.birdieFee = member.weightedSpots * birdiePerWeightedSpot;
+      // The person who collects the money (and books the field) can't owe
+      // themselves, so in priced months their own share counts as paid.
+      if (priced && member.name === VENMO_RECIPIENT_NAME) {
+        const ownShare = roundMoney(
+          member.dateFee + member.birdieFee - member.credits - member.paid,
+        );
+        if (ownShare > 0.005) {
+          member.paid += ownShare;
+          member.payments.push({
+            id: "collector-own-share",
+            paidOn: "",
+            playerName: member.name,
+            amount: ownShare,
+            method: "Collector",
+            note: "Collects the money, so their own games count as paid",
+            status: "active",
+            isAutomatic: true,
+            label: "Auto",
+          });
+        }
+      }
       member.netBalance =
         member.courtFee + member.dateFee + member.birdieFee - member.credits - member.paid;
     });
@@ -2209,7 +2231,7 @@
       .slice()
       .sort((first, second) => String(first.paidOn).localeCompare(String(second.paidOn)));
     const adjustments = billing.members.flatMap((member) =>
-      member.payments.filter((payment) => payment.isAdjustment),
+      member.payments.filter((payment) => payment.isAutomatic),
     );
     const activeTotal = records
       .filter((record) => record.status !== "canceled")
@@ -2220,7 +2242,7 @@
       paymentTable,
       ["Paid On", "Player", "Method", "Amount", "Note", "Status", "Actions"],
       adjustments.map((entry) => [
-        { text: "Earlier", className: "name-cell" },
+        { text: entry.label, className: "name-cell" },
         { text: entry.playerName },
         { text: entry.method },
         { text: formatMoney(entry.amount), className: "numeric-cell money-credit" },
