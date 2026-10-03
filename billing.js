@@ -2248,6 +2248,9 @@
           problem = "Paid on should look like 2026-09-11";
         } else if (!playerName) {
           problem = "Missing player";
+        } else if (/[√ƒ]|·[ª∫]|Ã./.test(playerName)) {
+          // UTF-8 read as Mac Roman/Latin-1, e.g. "Nguy·ªÖn" for "Nguyễn".
+          problem = "Name looks garbled. Copy the list again";
         } else if (!(amount > 0)) {
           problem = "Amount should be more than $0";
         }
@@ -2305,7 +2308,9 @@
       ? `Record ${pending.length} payment${pending.length === 1 ? "" : "s"} (${formatMoney(
           pending.reduce((sum, entry) => sum + entry.amount, 0),
         )})`
-      : "Record payments";
+      : paymentImportRows.length
+        ? "Nothing new to record"
+        : "Record (click Check first)";
   }
 
   // Look up each month's saved payments and attendance so lines that are
@@ -3276,6 +3281,14 @@
   legacyPaidButton.addEventListener("click", handleRecordLegacyPaid);
   paymentImportCheck.addEventListener("click", handlePaymentImportCheck);
   paymentImportRecord.addEventListener("click", handlePaymentImportRecord);
+  // Edited text needs a fresh Check before anything can be recorded.
+  paymentImportText.addEventListener("input", () => {
+    if (paymentImportRows.length) {
+      paymentImportRows = [];
+      renderPaymentImport();
+      setSectionStatus(paymentImportFeedback, "List changed. Click Check again.", "");
+    }
+  });
   paymentPlayerInput.addEventListener("change", prefillPaymentAmount);
   copyDuesButton.addEventListener("click", handleCopyDues);
   memberSelect.addEventListener("change", () => renderMemberDetail(memberSelect.value));
