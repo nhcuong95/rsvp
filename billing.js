@@ -2136,7 +2136,9 @@
     return calculateBilling({ priced: false })
       .members.filter((member) => normalizeText(getPaymentStatus(member.name)) === "paid")
       .map((member) => ({ name: member.name, amount: roundMoney(member.netBalance) }))
-      .filter((entry) => entry.amount > 0.005);
+      // Under $1 left is the old split's cents (e.g. $10.40), which players
+      // rounded off when they paid, not money they actually sent.
+      .filter((entry) => entry.amount >= 1);
   }
 
   function renderLegacyPaidNotice() {
