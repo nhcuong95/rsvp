@@ -44,7 +44,7 @@ const FETCH_TIMEOUT_MS = 30000;
 // Matches billing.js PER_DATE_PRICING_FROM: from this month on each date is
 // billed at its own price per person (no price = free), field bookings are not
 // credited, and recorded payments reduce the balance.
-const PER_DATE_PRICING_FROM = "2026-10";
+const PER_DATE_PRICING_FROM = "2026-08";
 
 // Defaults match billing.js (VENMO_RECIPIENT_USERNAME / VENMO_RECIPIENT_NAME).
 const DEFAULTS = {

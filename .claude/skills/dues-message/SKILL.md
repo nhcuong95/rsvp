@@ -64,9 +64,11 @@ node .claude/skills/dues-message/generate-dues-message.js 2026-08 --venmo someha
 
 - The live path needs network access and Node 18+ (uses global `fetch`); it reads
   `APPS_SCRIPT_URL` straight from `billing.js` so it can't drift.
-- From October 2026 on, dates are billed at their own price per person (no
-  price = free) and recorded payments reduce each balance, so paid members drop
-  out on their own. Earlier months use the field-cost split and Paid status.
+- From August 2026 (the group's first month) on, dates are billed at their own
+  price per person (no price = free) and recorded payments reduce each balance,
+  so paid members drop out on their own. Players marked Paid on the old
+  field-split bill count as unpaid until an admin clicks "Record as payments"
+  in the Billing page's Payments section.
 - Payments count toward the month, not a specific date, so the message shows
   every date's fee plus paid/missing totals rather than labeling a specific
   unpaid date.

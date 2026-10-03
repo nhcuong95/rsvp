@@ -40,7 +40,7 @@
   // From this month on, each date is billed at its own price per person (no
   // price = free) and payments are recorded as amounts, settled per month.
   // Earlier months keep the field-cost split and the Paid status dropdown.
-  const PER_DATE_PRICING_FROM = "2026-10";
+  const PER_DATE_PRICING_FROM = "2026-08";
   const BILLING_CACHE_PREFIX = "billing:backend:";
   const BILLING_MONTHS_CACHE_PREFIX = "billing:months:";
   const MEMBER_BILLING_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -116,6 +116,9 @@
   const paymentNoteInput = document.querySelector("#payment-note");
   const paymentFeedback = document.querySelector("#payment-feedback");
   const paymentTable = document.querySelector("#payment-table");
+  const legacyPaidNotice = document.querySelector("#legacy-paid-notice");
+  const legacyPaidText = document.querySelector("#legacy-paid-text");
+  const legacyPaidButton = document.querySelector("#legacy-paid-button");
 
   let attendanceRows = [];
   let billing = null;
@@ -1137,8 +1140,10 @@
     return PLAYERS.includes(remembered) ? remembered : "Thanh Nguyen";
   }
 
-  function calculateBilling() {
-    const priced = isPricedMonth();
+  // `options.priced` forces a mode, e.g. false to see the old field-split bill
+  // for a month that is now priced per date.
+  function calculateBilling(options) {
+    const priced = options?.priced ?? isPricedMonth();
     const datePrices = new Map(
       getDatePriceEntries().map((entry) => [entry.date, Number(entry.price || 0)]),
     );
@@ -1188,11 +1193,28 @@
       }
     });
 
+    // Old adjustments were mostly partial payments ("paid 9/3"), so priced
+    // months count them as money received.
     getBillingAdjustments()
       .filter((adjustment) => adjustment.status !== "canceled")
       .forEach((adjustment) => {
         const member = ensureMember(adjustment.playerName);
-        member.credits += Number(adjustment.amount || 0);
+        const amount = Number(adjustment.amount || 0);
+        if (!priced) {
+          member.credits += amount;
+        } else if (Math.abs(amount) > 0.005) {
+          member.paid += amount;
+          member.payments.push({
+            id: adjustment.id,
+            paidOn: "",
+            playerName: adjustment.playerName,
+            amount,
+            method: "Earlier entry",
+            note: adjustment.note,
+            status: "active",
+            isAdjustment: true,
+          });
+        }
       });
 
     getPaymentRecords()
@@ -2079,19 +2101,133 @@
     }
   }
 
+  // Players marked Paid on the old field-split bill (months before per-date
+  // prices) who have no payment recorded yet, with what that bill asked.
+  function getLegacyPaidEntries() {
+    const recorded = new Set(
+      getPaymentRecords()
+        .filter((record) => record.status !== "canceled")
+        .map((record) => record.playerName),
+    );
+    return calculateBilling({ priced: false })
+      .members.filter(
+        (member) =>
+          normalizeText(getPaymentStatus(member.name)) === "paid" && !recorded.has(member.name),
+      )
+      .map((member) => ({ name: member.name, amount: roundMoney(member.netBalance) }))
+      .filter((entry) => entry.amount > 0.005);
+  }
+
+  function renderLegacyPaidNotice() {
+    const entries = getLegacyPaidEntries();
+    legacyPaidNotice.hidden = !entries.length;
+    if (!entries.length) {
+      return;
+    }
+    const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+    legacyPaidText.textContent = `${entries.length} player${
+      entries.length === 1 ? " was" : "s were"
+    } marked Paid on the old field-split bill (${formatMoney(
+      total,
+    )} in all), with no payment recorded here yet. Record those amounts so they only owe or get back the difference.`;
+  }
+
+  async function handleRecordLegacyPaid() {
+    const month = monthInput.value;
+    const entries = getLegacyPaidEntries();
+    if (!entries.length) {
+      return;
+    }
+    const list = entries.map((entry) => `${entry.name}: ${formatMoney(entry.amount)}`).join("\n");
+    if (
+      !window.confirm(
+        `Record these ${formatMonthLabel(month)} payments (each player's old bill, marked Paid)?\n\n${list}`,
+      )
+    ) {
+      return;
+    }
+    const paidOn = getMonthEndDateValue();
+    const note = "Paid old field-split bill";
+
+    if (!backendAvailable || !adminToken) {
+      setPaymentRecords([
+        ...getPaymentRecords(),
+        ...entries.map((entry) => ({
+          id: makeId("payment"),
+          paidOn,
+          playerName: entry.name,
+          amount: entry.amount,
+          method: "Other",
+          note,
+          status: "active",
+        })),
+      ]);
+      recalculate(`Recorded ${entries.length} old payments locally.`);
+      return;
+    }
+
+    legacyPaidButton.disabled = true;
+    let done = 0;
+    let failure = null;
+    try {
+      for (const entry of entries) {
+        setSectionStatus(paymentFeedback, `Recording ${done + 1} of ${entries.length}...`, "loading");
+        // JSONP only: one attempt per payment, so a slow reply is never sent twice.
+        await requestViaJsonp({
+          action: "saveBillingPaymentRecord",
+          month,
+          playerName: entry.name,
+          amount: entry.amount.toFixed(2),
+          method: "Other",
+          paidOn,
+          note,
+          adminToken,
+          actor: getRememberedPlayer(),
+        });
+        done += 1;
+      }
+    } catch (error) {
+      failure = error;
+    }
+
+    clearBillingCache(month);
+    await loadBillingMonth(null, { forceRefresh: true });
+    legacyPaidButton.disabled = false;
+    setSectionStatus(
+      paymentFeedback,
+      failure
+        ? `Recorded ${done} of ${entries.length}. ${failure.message}. Click again to record the rest.`
+        : `Recorded ${done} old payments.`,
+      failure ? "error" : "success",
+    );
+  }
+
   function renderPayments() {
     fillPaymentPlayerSelect();
+    renderLegacyPaidNotice();
     const records = getPaymentRecords()
       .slice()
       .sort((first, second) => String(first.paidOn).localeCompare(String(second.paidOn)));
+    const adjustments = billing.members.flatMap((member) =>
+      member.payments.filter((payment) => payment.isAdjustment),
+    );
     const activeTotal = records
       .filter((record) => record.status !== "canceled")
+      .concat(adjustments)
       .reduce((sum, record) => sum + Number(record.amount || 0), 0);
 
     renderTable(
       paymentTable,
       ["Paid On", "Player", "Method", "Amount", "Note", "Status", "Actions"],
-      records.map((record) => {
+      adjustments.map((entry) => [
+        { text: "Earlier", className: "name-cell" },
+        { text: entry.playerName },
+        { text: entry.method },
+        { text: formatMoney(entry.amount), className: "numeric-cell money-credit" },
+        { text: entry.note || "" },
+        makeBadge("Received", "paid"),
+        createCell("td", ""),
+      ]).concat(records.map((record) => {
         const canceled = record.status === "canceled";
         const actions = document.createElement("td");
         if (!canceled) {
@@ -2129,7 +2265,7 @@
           makeBadge(canceled ? "Canceled" : "Received", canceled ? "muted" : "paid"),
           actions,
         ];
-      }),
+      })),
       ["Total", "", "", formatMoney(activeTotal), "", "", ""],
     );
   }
@@ -2928,6 +3064,7 @@
   finalizationForm.addEventListener("submit", handleFinalizationSubmit);
   markMonthPaidButton.addEventListener("click", handleMarkMonthPaid);
   paymentForm.addEventListener("submit", handlePaymentSubmit);
+  legacyPaidButton.addEventListener("click", handleRecordLegacyPaid);
   paymentPlayerInput.addEventListener("change", prefillPaymentAmount);
   copyDuesButton.addEventListener("click", handleCopyDues);
   memberSelect.addEventListener("change", () => renderMemberDetail(memberSelect.value));

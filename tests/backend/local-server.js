@@ -105,6 +105,23 @@ adminApp.call({ action: "saveBillingPaymentRecord", adminToken: ADMIN_TOKEN, mon
 adminApp.call({ action: "saveBillingPaymentRecord", adminToken: ADMIN_TOKEN, month: "2026-10",
   playerName: "Binh Le", amount: "10", method: "Zelle", paidOn: "2026-10-02", note: "half" });
 
+// August, re-billed per date: Anh and Binh were marked Paid on the old
+// field-split bill (no amounts), Chau paid $5 toward it (an old adjustment).
+// No prices yet, so the Billing page offers "Record as payments".
+const rsvpRows = ss.getSheetByName("RSVPs").data;
+[["2026-08-06", "Anh Tran", 1], ["2026-08-06", "Binh Le", 2], ["2026-08-06", "Chau Vo", 1],
+  ["2026-08-13", "Anh Tran", 1], ["2026-08-13", "Chau Vo", 1], ["2026-08-13", "Dung Pham", 1]]
+  .forEach(([date, name, spots]) =>
+    rsvpRows.push([date, name, "Yes", spots, "2026-08-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z", ""]));
+adminApp.call({ action: "saveCourtBlock", adminToken: ADMIN_TOKEN, month: "2026-08", date: "2026-08-06",
+  startTime: "20:00", durationHours: "2", courts: "1", amount: "60", paidBy: "Cuong Ta" });
+adminApp.call({ action: "saveCourtBlock", adminToken: ADMIN_TOKEN, month: "2026-08", date: "2026-08-13",
+  startTime: "20:00", durationHours: "2", courts: "1", amount: "45", paidBy: "Cuong Ta" });
+["Anh Tran", "Binh Le"].forEach((playerName) =>
+  adminApp.call({ action: "saveBillingPaymentStatus", adminToken: ADMIN_TOKEN, month: "2026-08", playerName, status: "Paid" }));
+adminApp.call({ action: "saveBillingAdjustment", adminToken: ADMIN_TOKEN, month: "2026-08",
+  playerName: "Chau Vo", amount: "5", note: "partial - Aug games" });
+
 const TYPES = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
   ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json",

@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Billing</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20261002-1" />
+    <link rel="stylesheet" href="./styles.css?v=20261003-1" />
   </head>
   <body>
     <main class="shell billing-shell">
@@ -160,6 +160,13 @@
                   </div>
                 </div>
                 <p id="payment-feedback" class="section-status" role="status" aria-live="polite"></p>
+
+                <div id="legacy-paid-notice" class="billing-legacy-notice" hidden>
+                  <p id="legacy-paid-text"></p>
+                  <button id="legacy-paid-button" class="secondary-button" type="button">
+                    Record as payments
+                  </button>
+                </div>
 
                 <form id="payment-form" class="billing-inline-form payment-record-form">
                   <label class="field">
@@ -315,6 +322,6 @@
 
     <script src="./admin-auth.js?v=20260915-1"></script>
     <script src="./billing-parser.js?v=20260627-5"></script>
-    <script src="./billing.js?v=20261002-1"></script>
+    <script src="./billing.js?v=20261003-1"></script>
   </body>
 </html>
