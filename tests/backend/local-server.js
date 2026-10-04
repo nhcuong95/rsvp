@@ -6,7 +6,8 @@
 //   http://localhost:8770/?date=2026-09-24  RSVP page (seeded: max 4, 2 waiting)
 //   http://localhost:8770/?date=2026-10-08  23 players with positions/scores (Make teams)
 //   http://localhost:8770/__login-admin     sign this browser in as admin
-//   http://localhost:8770/billing.html      October billing with per-date prices
+//   http://localhost:8770/billing.html      Billing: admins see every month; others
+//                                           see finalized August (My Bill only)
 //   http://localhost:8770/__sheet           current RSVPs sheet as JSON
 //
 // Nothing touches the real Google Sheet; data resets on restart.
@@ -123,6 +124,10 @@ adminApp.call({ action: "saveCourtBlock", adminToken: ADMIN_TOKEN, month: "2026-
   adminApp.call({ action: "saveBillingPaymentStatus", adminToken: ADMIN_TOKEN, month: "2026-08", playerName, status: "Paid" }));
 adminApp.call({ action: "saveBillingAdjustment", adminToken: ADMIN_TOKEN, month: "2026-08",
   playerName: "Chau Vo", amount: "5", note: "partial - Aug games" });
+// August is priced and finalized, so non-admins see it on Billing (My Bill).
+adminApp.call({ action: "saveBillingDatePrice", adminToken: ADMIN_TOKEN, date: "2026-08-06", price: "10" });
+adminApp.call({ action: "saveBillingDatePrice", adminToken: ADMIN_TOKEN, date: "2026-08-13", price: "8" });
+adminApp.call({ action: "saveBillingMonthStatus", adminToken: ADMIN_TOKEN, month: "2026-08", status: "finalized" });
 
 const TYPES = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",

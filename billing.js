@@ -106,6 +106,8 @@
   const copyDuesButton = document.querySelector("#copy-dues-button");
   const memberSelect = document.querySelector("#member-detail-select");
   const memberDetail = document.querySelector("#member-detail");
+  const memberDetailHeading = document.querySelector("#member-detail-heading");
+  const memberDetailIntro = document.querySelector("#member-detail-intro");
   const priceFeedback = document.querySelector("#price-feedback");
   const priceTable = document.querySelector("#price-table");
   const paymentForm = document.querySelector("#payment-form");
@@ -621,7 +623,7 @@
   function populateBillingMonthOptions(months) {
     const currentSelection = monthInput.value;
     const openMonths = months
-      .filter((month) => isAdmin || !month.allPaid)
+      .slice()
       .sort((first, second) => first.month.localeCompare(second.month));
 
     billingMonths = openMonths;
@@ -631,8 +633,8 @@
       option.value = month.month;
       option.textContent =
         isAdmin || month.billable
-          ? month.label || formatMonthLabel(month.month)
-          : `${month.label || formatMonthLabel(month.month)} (setup)`;
+          ? formatMonthLabel(month.month)
+          : `${formatMonthLabel(month.month)} (setup)`;
       monthInput.append(option);
     });
 
@@ -700,7 +702,7 @@
         setStatus(
           isAdmin
             ? "No billing months are available yet."
-            : "No open finalized billing months are ready for payment.",
+            : "No bills are finalized yet. Check back once the admin finalizes a month.",
           "",
         );
       }
@@ -709,14 +711,15 @@
       if (hasCachedMonths) {
         return true;
       }
-      const hasMonths = populateBillingMonthOptions(getFallbackBillingMonths(isAdmin));
+      // Members only ever see months the backend says are finalized.
+      const hasMonths = isAdmin && populateBillingMonthOptions(getFallbackBillingMonths(true));
       if (!hasMonths) {
         setBillingContentVisible(false);
         setStatus(
           isAdmin
             ? "No billing months are available yet."
-            : "No previous billing months are available yet.",
-          "",
+            : "Could not load bills right now. Try Refresh in a minute.",
+          isAdmin ? "" : "error",
         );
       }
       return hasMonths;
@@ -1838,8 +1841,15 @@
   }
 
   function renderMemberSelect() {
-    const current = memberSelect.value || getRememberedPlayer();
+    // The RSVP page remembers who you are, so players land on their own bill.
+    const current = memberSelect.value || localStorage.getItem(LAST_PLAYER_KEY) || "";
     clearElement(memberSelect);
+    if (!isAdmin) {
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Choose your name";
+      memberSelect.append(placeholder);
+    }
     billing.members.forEach((member) => {
       const option = document.createElement("option");
       option.value = member.name;
@@ -1848,7 +1858,9 @@
     });
     memberSelect.value = billing.members.some((member) => member.name === current)
       ? current
-      : billing.members[0]?.name || "";
+      : isAdmin
+        ? billing.members[0]?.name || ""
+        : "";
   }
 
   function appendDetailRow(label, value, className) {
@@ -1919,7 +1931,9 @@
     const member = billing.members.find((candidate) => candidate.name === name);
     clearElement(memberDetail);
     if (!member) {
-      memberDetail.textContent = "No member selected.";
+      memberDetail.textContent = isAdmin
+        ? "No member selected."
+        : "Choose your name above to see your games, payments, and what you owe.";
       return;
     }
 
@@ -2557,6 +2571,10 @@
     document.querySelectorAll(".admin-only").forEach((element) => {
       element.hidden = !isAdmin;
     });
+    memberDetailHeading.textContent = isAdmin ? "Member Detail" : "My Bill";
+    memberDetailIntro.textContent = isAdmin
+      ? "Review the selected member's balance and attendance."
+      : "Your games, payments, and balance for the month.";
     document.querySelectorAll(".priced-only").forEach((element) => {
       element.hidden = !isAdmin || !billing.priced;
     });
@@ -3247,23 +3265,10 @@
       document.querySelectorAll(".admin-only").forEach((element) => {
         element.hidden = !isAdmin;
       });
-      // Billing is admin-only: only load it for admins, and clear it on logout.
-      if (wasAdmin !== isAdmin) {
-        if (isAdmin && !billingLoaded) {
-          billingLoaded = true;
-          initializeBillingPage();
-        } else if (!isAdmin) {
-          billingLoaded = false;
-          billing = null;
-          if (billingContent) {
-            billingContent.hidden = true;
-          }
-        }
-      }
-    });
-
-    adminAuth.ready.then(() => {
-      if (isAdmin && !billingLoaded) {
+      // Admins see every month and section; everyone else sees finalized
+      // months and only their own bill. onChange fires right away with the
+      // stored login, so load then, and reload when the login changes.
+      if (!billingLoaded || wasAdmin !== isAdmin) {
         billingLoaded = true;
         initializeBillingPage();
       }

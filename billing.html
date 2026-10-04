@@ -17,7 +17,7 @@
             <p class="eyebrow">Monthly billing</p>
             <h1 id="page-title">Billing</h1>
           </div>
-          <div class="billing-toolbar admin-only">
+          <div class="billing-toolbar">
             <label class="field compact-field">
               <span>Month</span>
               <select id="billing-month" name="month" required>
@@ -38,20 +38,15 @@
             <a href="./index.html">RSVP</a>
             <a href="./roster.html">Members</a>
             <a href="./export.html">Report</a>
-            <a class="admin-only active" href="./billing.html" aria-current="page">Billing</a>
+            <a class="active" href="./billing.html" aria-current="page">Billing</a>
             <a href="./admin.html">Admin</a>
           </div>
         </nav>
 
-        <p class="non-admin-only member-gate" role="status">
-          Billing is admin-only. Log in on the
-          <a href="./admin.html">Admin</a> tab to view billing.
-        </p>
-
-        <p id="billing-status" class="status admin-only" role="status" aria-live="polite"></p>
+        <p id="billing-status" class="status" role="status" aria-live="polite"></p>
         <div
           id="billing-progress"
-          class="report-progress billing-progress admin-only"
+          class="report-progress billing-progress"
           role="status"
           aria-live="polite"
           hidden
@@ -62,7 +57,7 @@
           <p id="billing-progress-text">Loading billing...</p>
         </div>
 
-        <div id="billing-content" class="billing-content admin-only" hidden>
+        <div id="billing-content" class="billing-content" hidden>
           <section
             id="billing-finalization-panel"
             class="billing-finalization-panel draft"
@@ -89,7 +84,7 @@
             </form>
           </section>
 
-          <nav class="billing-tabs" aria-label="Billing sections">
+          <nav class="billing-tabs admin-only" aria-label="Billing sections">
             <a href="#member-detail-section">My Bill</a>
             <a href="#member-section">Members</a>
             <a class="priced-only" href="#price-section" hidden>Game Prices</a>
@@ -104,7 +99,7 @@
                 <div class="billing-band-header">
                   <div>
                     <h2 id="member-detail-heading">Member Detail</h2>
-                    <p>Review the selected member's balance and attendance.</p>
+                    <p id="member-detail-intro">Review the selected member's balance and attendance.</p>
                   </div>
                 </div>
                 <div class="billing-member-detail-controls">
@@ -116,7 +111,7 @@
                 <div id="member-detail" class="billing-detail-list"></div>
               </section>
 
-              <details id="member-section" class="billing-band billing-details-band" open>
+              <details id="member-section" class="billing-band billing-details-band admin-only" open>
                 <summary class="billing-band-summary">
                   <span>
                     <strong>Member Billing</strong>
@@ -137,7 +132,7 @@
                 </div>
               </details>
 
-              <section id="overview-section" class="billing-summary-grid" aria-label="Billing summary"></section>
+              <section id="overview-section" class="billing-summary-grid admin-only" aria-label="Billing summary"></section>
 
               <section id="price-section" class="billing-band priced-only" aria-labelledby="price-heading" hidden>
                 <div class="billing-band-header">
@@ -342,6 +337,6 @@
 
     <script src="./admin-auth.js?v=20260915-1"></script>
     <script src="./billing-parser.js?v=20260627-5"></script>
-    <script src="./billing.js?v=20261003-6"></script>
+    <script src="./billing.js?v=20261003-7"></script>
   </body>
 </html>
