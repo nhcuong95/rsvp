@@ -3086,11 +3086,14 @@
       const played = member.attendance
         .slice()
         .sort((first, second) => first.date.localeCompare(second.date))
-        .map((entry) => {
-          const fee =
-            entry.courtFee + entry.dateFee + entry.spots * entry.weight * perWeightedSpot;
-          return `${monthDay(entry.date)} (${fee > 0.005 ? formatMoney(fee) : "free"})`;
-        })
+        .map((entry) => ({
+          date: entry.date,
+          fee: entry.courtFee + entry.dateFee + entry.spots * entry.weight * perWeightedSpot,
+        }))
+        // Free dates don't change what anyone owes; leave them out to keep
+        // the message short.
+        .filter((entry) => entry.fee > 0.005)
+        .map((entry) => `${monthDay(entry.date)} (${formatMoney(entry.fee)})`)
         .join(", ");
       const gross = roundMoney(member.courtFee + member.dateFee + member.birdieFee);
       const paid = roundMoney(gross - member.netBalance);

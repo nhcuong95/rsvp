@@ -378,7 +378,9 @@ function buildDuesMessage(members, meta, options, extraPaid) {
     const played = (member.attendance || [])
       .slice()
       .sort((first, second) => first.date.localeCompare(second.date))
-      .map((entry) => `${monthDay(entry.date)} (${entry.fee > 0.005 ? formatMoney(entry.fee) : "free"})`)
+      // Free dates don't change what anyone owes; leave them out.
+      .filter((entry) => entry.fee > 0.005)
+      .map((entry) => `${monthDay(entry.date)} (${formatMoney(entry.fee)})`)
       .join(", ");
     const gross = round(Number(member.courtFee || 0) + Number(member.birdieFee || 0));
     const paid = round(gross - Number(member.netBalance || 0));
