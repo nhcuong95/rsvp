@@ -1906,11 +1906,14 @@
     note.textContent = `To ${VENMO_RECIPIENT_NAME}: ${getVenmoPaymentNote(member)}`;
     const help = document.createElement("p");
     help.className = "billing-payment-help";
-    help.textContent = "Venmo opens best from a phone.";
+    help.textContent = "Opens the Venmo app on a phone, or Venmo's website on a computer.";
 
     button.addEventListener("click", () => {
       if (!isMobilePaymentDevice()) {
-        help.textContent = "Please open this page on your phone to pay with Venmo.";
+        // On a computer the same link lands on Venmo's web payment page with
+        // the amount, note, and recipient filled in.
+        window.open(urls.webUrl, "_blank", "noopener");
+        help.textContent = "Opened Venmo in a new tab. Sign in if asked, then review and pay.";
         return;
       }
 
