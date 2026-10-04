@@ -223,7 +223,9 @@ async function fetchBillingMonth(monthKey) {
   return parsed.billing;
 }
 
-function membersFromBilling(billing, collector) {
+// creditsIn: name -> credit carried in from the month before (billing.js
+// carries a player's leftover credit forward; owing never carries).
+function membersFromBilling(billing, collector, creditsIn = new Map()) {
   const monthKey = billing.month;
   const priced = monthKey >= PER_DATE_PRICING_FROM;
   const datePrices = new Map(
@@ -278,6 +280,12 @@ function membersFromBilling(billing, collector) {
     .forEach((adjustment) => {
       ensure(adjustment.playerName).credits += Number(adjustment.amount || 0);
     });
+
+  if (priced) {
+    creditsIn.forEach((amount, name) => {
+      ensure(name).paid += amount;
+    });
+  }
 
   (billing.paymentRecords || [])
     .filter((record) => record.status !== "canceled")
@@ -408,6 +416,27 @@ function buildDuesMessage(members, meta, options, extraPaid) {
   return { count: unpaid.length, message };
 }
 
+function shiftMonth(monthKey, delta) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(year, month - 1 + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// Credit carried into monthKey: each earlier per-date month's leftover
+// credit, counting what carried into that month too (matches billing.js).
+async function carriedCreditsInto(monthKey, collector) {
+  let carried = new Map();
+  for (let from = PER_DATE_PRICING_FROM; from < monthKey; from = shiftMonth(from, 1)) {
+    const { members } = membersFromBilling(await fetchBillingMonth(from), collector, carried);
+    carried = new Map(
+      members
+        .filter((member) => member.netBalance < -0.005)
+        .map((member) => [member.name, round(-member.netBalance)]),
+    );
+  }
+  return carried;
+}
+
 async function main() {
   const { target, options } = parseArgs(process.argv.slice(2));
   const resolved = resolveTarget(target, options.live);
@@ -416,7 +445,8 @@ async function main() {
   let source;
   if (resolved.mode === "live") {
     const billing = await fetchBillingMonth(resolved.monthKey);
-    source = membersFromBilling(billing, options.recipient);
+    const creditsIn = await carriedCreditsInto(resolved.monthKey, options.recipient);
+    source = membersFromBilling(billing, options.recipient, creditsIn);
     if (source.monthStatus && source.monthStatus !== "finalized") {
       process.stderr.write(
         `Note: ${resolved.monthKey} is still "${source.monthStatus}" (not finalized) — amounts may change.\n`,

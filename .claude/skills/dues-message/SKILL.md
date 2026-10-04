@@ -66,7 +66,8 @@ node .claude/skills/dues-message/generate-dues-message.js 2026-08 --venmo someha
   `APPS_SCRIPT_URL` straight from `billing.js` so it can't drift.
 - From August 2026 (the group's first month) on, dates are billed at their own
   price per person (no price = free) and recorded payments reduce each balance,
-  so paid members drop out on their own. Players marked Paid on the old
+  so paid members drop out on their own. A credit left over from earlier months
+  counts toward the month, the same as on the Billing page. Players marked Paid on the old
   field-split bill count as unpaid until an admin clicks "Record as payments"
   in the Billing page's Payments section.
 - Payments count toward the month, not a specific date, so the message shows

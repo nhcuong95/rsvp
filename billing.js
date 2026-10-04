@@ -128,6 +128,11 @@
   const paymentImportFeedback = document.querySelector("#payment-import-feedback");
 
   let attendanceRows = [];
+  // Credit each player carries into a month from the month before (see
+  // loadCarriedCredits); only used while carriedCreditsMonth is selected.
+  let carriedCredits = new Map();
+  let carriedCreditsMonth = "";
+  let carriedCreditsError = "";
   let billing = null;
   let billingLoaded = false;
   let billingMonths = [];
@@ -1115,6 +1120,16 @@
     return readJson(storageKey("adjustments"), []);
   }
 
+  function shiftMonth(month, delta) {
+    const [year, monthNumber] = String(month).split("-").map(Number);
+    const date = new Date(year, monthNumber - 1 + delta, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function getCarriedCredits(month) {
+    return carriedCreditsMonth === month ? carriedCredits : new Map();
+  }
+
   function isPricedMonth() {
     return monthInput.value >= PER_DATE_PRICING_FROM;
   }
@@ -1149,14 +1164,32 @@
   }
 
   // `options.priced` forces a mode, e.g. false to see the old field-split bill
-  // for a month that is now priced per date.
+  // for a month that is now priced per date. `options.source` ({ month,
+  // billing }) bills another month's backend data instead of the selected
+  // one, and `options.creditsIn` (name -> amount) is credit carried in from
+  // the month before; the selected month uses the loaded carried credits.
   function calculateBilling(options) {
-    const priced = options?.priced ?? isPricedMonth();
+    const source = options?.source;
+    const month = source?.month || monthInput.value;
+    const priced = options?.priced ?? month >= PER_DATE_PRICING_FROM;
+    const creditsIn = options?.creditsIn ?? (source ? new Map() : getCarriedCredits(month));
     const datePrices = new Map(
-      getDatePriceEntries().map((entry) => [entry.date, Number(entry.price || 0)]),
+      (source ? source.billing.datePrices || [] : getDatePriceEntries()).map((entry) => [
+        entry.date,
+        Number(entry.price || 0),
+      ]),
     );
-    const courtBlocks = getCourtBlocks();
-    const birdieState = getBirdieState();
+    const courtBlocks = source ? source.billing.courtBlocks || [] : getCourtBlocks();
+    const birdieState = source
+      ? { purchases: source.billing.birdiePurchases || [] }
+      : getBirdieState();
+    const adjustments = source ? source.billing.adjustments || [] : getBillingAdjustments();
+    const paymentRecords = source ? source.billing.paymentRecords || [] : getPaymentRecords();
+    const days = source ? source.billing.attendance || [] : attendanceRows;
+    const isBilledExtra = (purchase) =>
+      isActiveBirdiePurchase(purchase) &&
+      String(purchase?.date || "").startsWith(`${month}-`) &&
+      getBirdieRecordType(purchase) !== "inventory_purchase";
     const activeCourtBlocks = courtBlocks.filter((block) => block.status === "active");
     const courtByDate = new Map();
     const members = new Map();
@@ -1174,6 +1207,7 @@
           birdieFee: 0,
           credits: 0,
           paid: 0,
+          carriedIn: 0,
           netBalance: 0,
           attendance: [],
           payments: [],
@@ -1193,7 +1227,7 @@
     });
 
     birdieState.purchases
-      .filter(isBilledBirdiePurchase)
+      .filter(isBilledExtra)
       .forEach((purchase) => {
       if (purchase.paidBy) {
         const payer = ensureMember(purchase.paidBy);
@@ -1203,7 +1237,7 @@
 
     // Old adjustments were mostly partial payments ("paid 9/3"), so priced
     // months count them as money received.
-    getBillingAdjustments()
+    adjustments
       .filter((adjustment) => adjustment.status !== "canceled")
       .forEach((adjustment) => {
         const member = ensureMember(adjustment.playerName);
@@ -1226,7 +1260,7 @@
         }
       });
 
-    getPaymentRecords()
+    paymentRecords
       .filter((record) => record.status !== "canceled")
       .forEach((record) => {
         const member = ensureMember(record.playerName);
@@ -1234,7 +1268,27 @@
         member.payments.push(record);
       });
 
-    attendanceRows.forEach((day) => {
+    // Credit a player was left with last month counts toward this month.
+    if (priced) {
+      creditsIn.forEach((amount, name) => {
+        const member = ensureMember(name);
+        member.carriedIn += amount;
+        member.paid += amount;
+        member.payments.push({
+          id: `carried-${name}`,
+          paidOn: "",
+          playerName: name,
+          amount,
+          method: "Credit",
+          note: `Left over from ${formatMonthLabel(shiftMonth(month, -1))}`,
+          status: "active",
+          isAutomatic: true,
+          label: "Carried",
+        });
+      });
+    }
+
+    days.forEach((day) => {
       const weight = getDateWeight(day.date);
       const daySpots = day.players.reduce((sum, player) => sum + player.spots, 0);
       const dayWeightedSpots = daySpots * weight;
@@ -1263,7 +1317,7 @@
     });
 
     const birdieTotal = birdieState.purchases
-      .filter(isBilledBirdiePurchase)
+      .filter(isBilledExtra)
       .reduce(
       (sum, purchase) => sum + Number(purchase.amount || 0),
       0,
@@ -1310,7 +1364,7 @@
       members: Array.from(members.values()).sort((first, second) =>
         first.name.localeCompare(second.name),
       ),
-      daily: attendanceRows.map((day) => {
+      daily: days.map((day) => {
         const spots = day.players.reduce((sum, player) => sum + player.spots, 0);
         const weight = getDateWeight(day.date);
         const courtFee = courtByDate.get(day.date) || 0;
@@ -1328,6 +1382,47 @@
         };
       }),
     };
+  }
+
+  // Credit each player carries into `month`: whatever they had left over at
+  // the end of the month before, which itself counts the credit carried into
+  // that month, back to the first per-date month. Owing never carries; each
+  // month's unpaid balance stays in that month.
+  function computeCreditsIn(month, billingByMonth) {
+    let carried = new Map();
+    for (let from = PER_DATE_PRICING_FROM; from < month; from = shiftMonth(from, 1)) {
+      const result = calculateBilling({
+        source: { month: from, billing: billingByMonth.get(from) },
+        creditsIn: carried,
+      });
+      carried = new Map(
+        result.members
+          .filter((member) => member.netBalance < -0.005)
+          .map((member) => [member.name, roundMoney(-member.netBalance)]),
+      );
+    }
+    return carried;
+  }
+
+  // Load every earlier per-date month (fresh cache first) and work out the
+  // credit carried into `month`.
+  async function loadCarriedCredits(month) {
+    const months = [];
+    for (let from = PER_DATE_PRICING_FROM; from < month; from = shiftMonth(from, 1)) {
+      months.push(from);
+    }
+    const loaded = await Promise.all(
+      months.map(async (from) => {
+        const cached = readBillingCache(from);
+        if (cached?.billing && isBillingCacheFresh(cached)) {
+          return [from, cached.billing];
+        }
+        const result = await requestAppsScript({ action: "listBillingMonth", month: from, adminToken });
+        writeBillingCache(from, result.billing);
+        return [from, result.billing];
+      }),
+    );
+    return computeCreditsIn(month, new Map(loaded));
   }
 
   function renderSummary() {
@@ -1348,7 +1443,11 @@
       0,
     );
     const gameFees = billing.members.reduce((sum, member) => sum + member.dateFee, 0);
-    const collected = billing.members.reduce((sum, member) => sum + member.paid, 0);
+    // Money actually received: carried credit was counted the month before.
+    const collected = billing.members.reduce(
+      (sum, member) => sum + member.paid - member.carriedIn,
+      0,
+    );
     const fieldMargin = roundMoney(gameFees - courtTotal);
     const metrics = billing.priced
       ? [
@@ -1983,6 +2082,13 @@
     appendDetailRow("Paid", formatMoney(member.paid), member.paid ? "money-credit" : "");
     appendDetailRow("Balance", formatMoney(member.netBalance), getMoneyClass(member.netBalance));
     appendDetailRow("Status", status);
+    if (member.netBalance < -0.005) {
+      appendDetailRow(
+        `Carries to ${formatMonthLabel(shiftMonth(monthInput.value, 1))}`,
+        formatMoney(-member.netBalance),
+        "money-credit",
+      );
+    }
     renderVenmoPaymentAction(member);
 
     const games = document.createElement("section");
@@ -2782,8 +2888,38 @@
     updatePageTitle();
     clearSectionStatuses();
     const cached = LOCAL_BILLING_FIXTURE ? null : readBillingCache(month);
+    // Earlier months load alongside this one so balances never show without
+    // last month's credit.
+    const creditsReady = LOCAL_BILLING_FIXTURE || month <= PER_DATE_PRICING_FROM
+      ? Promise.resolve()
+      : loadCarriedCredits(month).then(
+          (credits) => {
+            if (requestId === latestBillingRequest) {
+              carriedCredits = credits;
+              carriedCreditsMonth = month;
+              carriedCreditsError = "";
+            }
+          },
+          (error) => {
+            if (requestId === latestBillingRequest) {
+              carriedCreditsError = error.message;
+            }
+          },
+        );
+    const warnIfCreditsMissing = () => {
+      if (carriedCreditsError && requestId === latestBillingRequest) {
+        setStatus(
+          `Billing loaded, but last month's credits couldn't load (${carriedCreditsError}). Balances may be too high; try Refresh.`,
+          "error",
+        );
+      }
+    };
 
     if (cached?.billing) {
+      await creditsReady;
+      if (requestId !== latestBillingRequest) {
+        return;
+      }
       applyBackendBilling(cached.billing, null, "cached billing", {
         skipProgress: true,
         silentStatus: true,
@@ -2791,6 +2927,7 @@
       if (isBillingCacheFresh(cached) && !forceRefresh) {
         setBillingContentVisible(true);
         setStatus(message || "Billing loaded from saved data.", "success");
+        warnIfCreditsMissing();
         updatePageTitle();
         return;
       }
@@ -2826,11 +2963,13 @@
         month,
         adminToken,
       });
+      await creditsReady;
       if (requestId !== latestBillingRequest) {
         return;
       }
       writeBillingCache(month, result.billing);
       applyBackendBilling(result.billing, message);
+      warnIfCreditsMissing();
     } catch (error) {
       if (requestId !== latestBillingRequest) {
         return;
