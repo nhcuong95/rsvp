@@ -1263,7 +1263,7 @@
     }
   }
 
-  // Fill the start/end <select>s with 30-minute options (12:00 AM–11:30 PM)
+  // Fill the start/end <select>s with 15-minute options (12:00 AM–11:45 PM)
   // plus a blank "—" default. Called once on init.
   function populateTimeOptions() {
     [adminStartTime, adminEndTime].forEach((select) => {
@@ -1274,7 +1274,7 @@
       blank.value = "";
       blank.textContent = "—";
       select.append(blank);
-      for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
+      for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
         const hour24 = Math.floor(minutes / 60);
         const minute = minutes % 60;
         const period = hour24 < 12 ? "AM" : "PM";
