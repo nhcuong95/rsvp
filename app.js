@@ -2422,14 +2422,98 @@
     });
   }
 
+  // Apps Script takes seconds to answer, so show the vote in the list right
+  // away (marked as saving) and swap in the server's list when it replies.
+  // Returns a handle for settlePendingVote, or null when the list is left
+  // alone: it isn't loaded for this date, or the server will first ask to
+  // confirm changing an existing RSVP.
+  function showPendingVote(payload) {
+    const playDate = payload.playDate;
+    if (
+      !lastTally ||
+      lastTally.date !== playDate ||
+      dateInput.value !== playDate ||
+      tallySection?.getAttribute("aria-busy") === "true"
+    ) {
+      return null;
+    }
+
+    const previous = lastTally.raw;
+    const players = Array.isArray(previous?.players) ? previous.players : [];
+    const waitlist = Array.isArray(previous?.waitlist) ? previous.waitlist : [];
+    const key = String(payload.playerName || "").trim().toLowerCase();
+    const isPlayer = (player) => String(player.name || "").trim().toLowerCase() === key;
+    const listed = players.some(isPlayer) || waitlist.some(isPlayer);
+    const count = Math.max(0, Number(payload.participantCount) || 0);
+    if (listed && count > 0 && payload.confirmOverride !== "true") {
+      return null;
+    }
+
+    const withCount = (player) =>
+      isPlayer(player) ? { ...player, participantCount: count, pending: true } : player;
+    let nextPlayers = players.filter((player) => !isPlayer(player));
+    let nextWaitlist = waitlist.filter((player) => !isPlayer(player));
+    if (count > 0) {
+      if (players.some(isPlayer)) {
+        nextPlayers = players.map(withCount);
+      } else if (waitlist.some(isPlayer)) {
+        nextWaitlist = waitlist.map(withCount);
+      } else {
+        // Same rule as the backend: a new RSVP gets in if it fits the spots
+        // left (anyone still waiting is too big for them), else joins the line.
+        const entry = { name: payload.playerName, participantCount: count, pending: true };
+        const capacity = getDateDetail(playDate).capacity;
+        if (capacity === null || sumParticipants(players) + count <= capacity) {
+          nextPlayers = [...players, entry].sort((first, second) =>
+            String(first.name).localeCompare(String(second.name)));
+        } else {
+          nextWaitlist = [...waitlist, entry];
+        }
+      }
+    }
+
+    renderTally({
+      ...previous,
+      players: nextPlayers,
+      playerCount: nextPlayers.length,
+      totalCount: sumParticipants(nextPlayers),
+      waitlist: nextWaitlist,
+      waitlistCount: sumParticipants(nextWaitlist),
+    });
+    return { playDate, previous, shown: lastTally.raw };
+  }
+
+  // Replace the pending list with the server's `tally`, or put the previous
+  // list back when there is none (the submit failed or needs confirmation).
+  // Skipped once the list moved on, e.g. the player switched dates.
+  function settlePendingVote(pending, playDate, tally) {
+    if (dateInput.value !== playDate) {
+      return;
+    }
+    if (tally) {
+      renderTally(tally);
+    } else if (pending && lastTally?.raw === pending.shown) {
+      renderTally(pending.previous);
+    }
+  }
+
+  function sumParticipants(list) {
+    return list.reduce(
+      (sum, player) => sum + Math.max(1, Number(player.participantCount || 1)),
+      0,
+    );
+  }
+
   async function submitRsvp(payload) {
     submitButton.disabled = true;
     setStatus("Submitting...", "");
+    const pending = showPendingVote(payload);
 
     try {
       const result = await requestAppsScript(payload);
 
       if (result.action === "needs_confirmation") {
+        settlePendingVote(pending, payload.playDate, null);
         askOverrideConfirmation(result.existing, payload);
         setStatus("Confirm whether to update the existing RSVP.", "");
         return;
@@ -2439,7 +2523,7 @@
       rememberPlayerName(payload.playerName);
       selectedPlayerName = payload.playerName;
       updatePlayerMemory();
-      renderTally(result.tally);
+      settlePendingVote(pending, payload.playDate, result.tally);
       // Joining or leaving the waitlist changes whether "Not going" applies.
       renderParticipantOptions();
       if (result.action === "deleted") {
@@ -2453,6 +2537,7 @@
         setStatus(describeRsvpResult(result, payload.playDate), "success");
       }
     } catch (error) {
+      settlePendingVote(pending, payload.playDate, null);
       if (error.message === "Could not reach Apps Script") {
         setStatusWithLink(
           "Your browser blocked the embedded submit.",
@@ -2491,6 +2576,7 @@
       removeRsvpButton.disabled = true;
     }
     setStatus("Removing RSVP...", "");
+    const pending = showPendingVote({ ...payload, participantCount: 0 });
 
     try {
       const result = await requestAppsScript(
@@ -2502,10 +2588,11 @@
         }),
       );
 
-      renderTally(result.tally);
+      settlePendingVote(pending, payload.playDate, result.tally);
       setRemoveRsvpAction(null);
       setStatus("Removed the existing RSVP.", "success");
     } catch (error) {
+      settlePendingVote(pending, payload.playDate, null);
       setStatus(error.message, "error");
     } finally {
       submitButton.disabled = false;
@@ -2573,6 +2660,7 @@
         participants.textContent = formatParticipantCount(participantCount);
 
         item.append(name, participants);
+        markPending(item, player);
         if (player.withdrawRequested) {
           item.classList.add("has-withdraw-request");
           const badge = document.createElement("span");
@@ -2634,9 +2722,22 @@
           Math.max(1, Number(player.participantCount || 1)),
         );
         item.append(name, participants);
+        markPending(item, player);
         return item;
       }),
     );
+  }
+
+  // A row showing a vote that Apps Script hasn't confirmed yet.
+  function markPending(item, player) {
+    if (!player.pending) {
+      return;
+    }
+    item.classList.add("is-pending");
+    const note = document.createElement("span");
+    note.className = "pending-note";
+    note.textContent = "saving…";
+    item.querySelector(".tally-name").append(" ", note);
   }
 
   async function loadTally(playDate, attempt) {

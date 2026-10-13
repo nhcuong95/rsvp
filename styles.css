@@ -2414,6 +2414,18 @@ body.is-admin .non-admin-only {
   background: #fffaf0;
 }
 
+/* A vote shown before Apps Script confirms it. */
+.tally-list li.is-pending {
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.pending-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
 /* Admin rows put Accept / Decline on their own line. */
 .tally-list li.has-withdraw-review {
   flex-wrap: wrap;

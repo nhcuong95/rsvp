@@ -24,6 +24,8 @@ const WAITLIST_VOTE = "Waitlist";
 const SPREADSHEET_ID_PROPERTY = "RSVP_SPREADSHEET_ID";
 const ROSTER_CACHE_KEY = "rsvp-public-roster-v1";
 const ROSTER_CACHE_TTL_SECONDS = 6 * 60 * 60;
+const SHEET_READY_CACHE_PREFIX = "rsvp-sheet-ready-v1:";
+const SHEET_READY_TTL_SECONDS = 6 * 60 * 60;
 const PLAY_START_HOUR = 6;
 const UNVOTE_LOCK_HOURS_BEFORE_PLAY = 6;
 const UNVOTE_LOCK_MESSAGE =
@@ -438,69 +440,64 @@ function upsertRsvpWithLock_(params) {
 }
 
 function getSheet_() {
-  const spreadsheet = getSpreadsheet_();
-  let sheet = spreadsheet.getSheetByName(SHEET_NAME);
-
-  if (!sheet) {
-    sheet = spreadsheet.insertSheet(SHEET_NAME);
-  }
-
-  const headerRange = sheet.getRange(1, 1, 1, HEADERS.length);
-  const currentHeaders = headerRange.getValues()[0];
-  const needsHeaders = HEADERS.some((header, index) => currentHeaders[index] !== header);
-
-  if (needsHeaders) {
-    headerRange.setValues([HEADERS]);
-    sheet.setFrozenRows(1);
-  }
-
-  return sheet;
+  return getPreparedSheet_(SHEET_NAME, HEADERS);
 }
 
 function getRosterSheet_() {
-  const spreadsheet = getSpreadsheet_();
-  let sheet = spreadsheet.getSheetByName(ROSTER_SHEET_NAME);
-
-  if (!sheet) {
-    sheet = spreadsheet.insertSheet(ROSTER_SHEET_NAME);
-  }
-
-  const headerRange = sheet.getRange(1, 1, 1, ROSTER_HEADERS.length);
-  const currentHeaders = headerRange.getValues()[0];
-  const needsHeaders = ROSTER_HEADERS.some(
-    (header, index) => currentHeaders[index] !== header,
-  );
-
-  if (needsHeaders) {
-    headerRange.setValues([ROSTER_HEADERS]);
-    sheet.setFrozenRows(1);
-  }
-
-  return sheet;
+  return getPreparedSheet_(ROSTER_SHEET_NAME, ROSTER_HEADERS);
 }
 
 function getAuditSheet_() {
+  return getPreparedSheet_(AUDIT_SHEET_NAME, AUDIT_HEADERS, (sheet) => {
+    sheet.getRange("C:C").setNumberFormat("@");
+  });
+}
+
+// A sheet with its headers (and any column formats from `prepare`) in place.
+// Checking costs a read and writes that flush pending changes, so once a
+// sheet passes, skip the check for SHEET_READY_TTL_SECONDS. The key includes
+// the header count so a deploy that adds a column checks again right away.
+function getPreparedSheet_(name, headers, prepare) {
   const spreadsheet = getSpreadsheet_();
-  let sheet = spreadsheet.getSheetByName(AUDIT_SHEET_NAME);
+  const cache = CacheService.getScriptCache();
+  const readyKey = `${SHEET_READY_CACHE_PREFIX}${name}:${headers.length}`;
+  let sheet = spreadsheet.getSheetByName(name);
+  if (sheet && cache.get(readyKey)) {
+    return sheet;
+  }
 
   if (!sheet) {
-    sheet = spreadsheet.insertSheet(AUDIT_SHEET_NAME);
+    sheet = spreadsheet.insertSheet(name);
   }
 
-  const headerRange = sheet.getRange(1, 1, 1, AUDIT_HEADERS.length);
+  const headerRange = sheet.getRange(1, 1, 1, headers.length);
   const currentHeaders = headerRange.getValues()[0];
-  const needsHeaders = AUDIT_HEADERS.some((header, index) => currentHeaders[index] !== header);
+  const needsHeaders = headers.some((header, index) => currentHeaders[index] !== header);
 
   if (needsHeaders) {
-    headerRange.setValues([AUDIT_HEADERS]);
+    headerRange.setValues([headers]);
     sheet.setFrozenRows(1);
   }
-  sheet.getRange("C:C").setNumberFormat("@");
+  if (prepare) {
+    prepare(sheet);
+  }
 
+  cache.put(readyKey, "1", SHEET_READY_TTL_SECONDS);
   return sheet;
 }
 
+// Opened once per request: this standalone project has no active spreadsheet,
+// so every lookup would otherwise be another openById.
+let spreadsheet_ = null;
+
 function getSpreadsheet_() {
+  if (!spreadsheet_) {
+    spreadsheet_ = openSpreadsheet_();
+  }
+  return spreadsheet_;
+}
+
+function openSpreadsheet_() {
   const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   if (activeSpreadsheet) {
     return activeSpreadsheet;
@@ -517,26 +514,9 @@ function getSpreadsheet_() {
 }
 
 function getLocksSheet_() {
-  const spreadsheet = getSpreadsheet_();
-  let sheet = spreadsheet.getSheetByName(LOCKS_SHEET_NAME);
-
-  if (!sheet) {
-    sheet = spreadsheet.insertSheet(LOCKS_SHEET_NAME);
-  }
-
-  const headerRange = sheet.getRange(1, 1, 1, LOCKS_HEADERS.length);
-  const currentHeaders = headerRange.getValues()[0];
-  const needsHeaders = LOCKS_HEADERS.some(
-    (header, index) => currentHeaders[index] !== header,
-  );
-
-  if (needsHeaders) {
-    headerRange.setValues([LOCKS_HEADERS]);
-    sheet.setFrozenRows(1);
-  }
-  sheet.getRange("A:A").setNumberFormat("@");
-
-  return sheet;
+  return getPreparedSheet_(LOCKS_SHEET_NAME, LOCKS_HEADERS, (sheet) => {
+    sheet.getRange("A:A").setNumberFormat("@");
+  });
 }
 
 function getLockedDateSet_() {
