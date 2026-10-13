@@ -3,7 +3,6 @@
     "https://script.google.com/macros/s/AKfycbyc_NEAxzm_0R2Mp05vHYURAHKNYqvjccBFTBh7JAgi7UThHi-W3F-2qM9akXiyrdJGMg/exec";
   const BROWSER_ID_KEY = "play-rsvp.browserId";
   const DISPLAY_LOCALE = "en-US";
-  const PLAY_DAYS = [2, 4, 6]; // Tuesday, Thursday, Saturday
   let PLAYERS = [
     "Ly Phung Hoang",
     "Cuong Tipu",
@@ -196,13 +195,6 @@
     return `${year}-${month}`;
   }
 
-  function formatDate(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-
   function formatDisplayDate(value) {
     const date = new Date(`${value}T00:00:00`);
     const weekday = date.toLocaleDateString(DISPLAY_LOCALE, { weekday: "short" });
@@ -221,33 +213,22 @@
       .toLowerCase();
   }
 
-  function getPlayDatesForMonth(month) {
-    if (!/^\d{4}-\d{2}$/.test(month || "")) {
-      return [];
-    }
+  // Dates the admin added to the RSVP list ("RSVP Dates" sheet) that fall in
+  // the selected month.
+  async function loadOpenDatesForMonth(month) {
+    const result = await requestAppsScript({ action: "listPlayDates" });
+    const dates = Array.isArray(result.dates) ? result.dates : [];
+    return dates.filter(
+      (value) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(value) && value.startsWith(`${month}-`),
+    );
+  }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const year = Number(month.slice(0, 4));
-    const monthIndex = Number(month.slice(5, 7)) - 1;
-    const isCurrentMonth = month === formatMonth(today);
-    const daysUntilThisSunday = (7 - today.getDay()) % 7;
-    const endDate = new Date(today);
-    endDate.setDate(today.getDate() + daysUntilThisSunday + 7);
-    const current = new Date(year, monthIndex, 1);
-    const dates = [];
-
-    while (
-      current.getMonth() === monthIndex &&
-      (!isCurrentMonth || current <= endDate)
-    ) {
-      if (PLAY_DAYS.includes(current.getDay())) {
-        dates.push(formatDate(current));
-      }
-      current.setDate(current.getDate() + 1);
-    }
-
-    return dates;
+  // Dates in the month (any weekday) where someone reserved a spot, so a date
+  // removed from the RSVP list keeps its column while it has sign-ups.
+  async function loadRsvpDatesForMonth(month) {
+    const result = await requestAppsScript({ action: "listRsvpDates", month });
+    return Array.isArray(result.dates) ? result.dates : [];
   }
 
   function getKey(playerName, playDate) {
@@ -802,7 +783,7 @@
   async function loadMonth(month) {
     const requestId = latestLoadRequest + 1;
     latestLoadRequest = requestId;
-    monthDates = getPlayDatesForMonth(month);
+    monthDates = [];
     renderAuditDateFilter();
     rosterValues = new Map();
     lockedDates = new Set();
@@ -814,6 +795,20 @@
     loadAudit(month);
 
     try {
+      if (!/^\d{4}-\d{2}$/.test(month || "")) {
+        throw new Error("Pick a month.");
+      }
+      // Show a date if it is on the RSVP list or anyone reserved a spot on it.
+      const [openDates, rsvpDates] = await Promise.all([
+        loadOpenDatesForMonth(month),
+        loadRsvpDatesForMonth(month),
+      ]);
+      if (requestId !== latestLoadRequest || monthInput.value !== month) {
+        return;
+      }
+      monthDates = Array.from(new Set([...openDates, ...rsvpDates])).sort();
+      renderAuditDateFilter();
+
       for (let index = 0; index < monthDates.length; index += 1) {
         const playDate = monthDates[index];
         setStatus(
@@ -845,7 +840,12 @@
       }
 
       renderRosterTable();
-      setStatus("Month loaded.", "success");
+      setStatus(
+        monthDates.length
+          ? "Month loaded."
+          : "No RSVP dates added for this month yet.",
+        monthDates.length ? "success" : "",
+      );
     } catch (error) {
       if (requestId !== latestLoadRequest || monthInput.value !== month) {
         return;

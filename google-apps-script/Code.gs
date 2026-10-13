@@ -373,6 +373,16 @@ function doGet(event) {
       });
     }
 
+    if (params.action === "listRsvpDates") {
+      return jsonp_(callback, {
+        ok: true,
+        action: "listRsvpDates",
+        dates: getRsvpDatesForMonth_(
+          required_(params.month, "Missing month"),
+        ),
+      });
+    }
+
     if (params.action === "setPlayDate") {
       requireAdmin_(params);
       const result = setOpenDate_(params);
@@ -3986,6 +3996,36 @@ function getExportDatesForMonth_(sheet, month) {
       }
     });
   }
+
+  return Object.keys(dateSet).sort();
+}
+
+// Dates in the month (any weekday) where a roster player reserved at least one
+// spot, so the admin Month Roster keeps a date's column after it is removed
+// from the RSVP list, e.g. ["2026-10-01", "2026-10-07"].
+function getRsvpDatesForMonth_(month) {
+  validateMonth_(month);
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+
+  const rosterNameSet = getRosterNameSet_();
+  const dateSet = {};
+  sheet
+    .getRange(2, 1, lastRow - 1, 4)
+    .getValues()
+    .forEach((row) => {
+      const date = normalizeDate_(row[0]);
+      if (
+        date.indexOf(`${month}-`) === 0 &&
+        normalize_(row[2]) === "yes" &&
+        isRosterPlayer_(String(row[1] || "").trim(), rosterNameSet)
+      ) {
+        dateSet[date] = true;
+      }
+    });
 
   return Object.keys(dateSet).sort();
 }
