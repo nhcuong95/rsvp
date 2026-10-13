@@ -222,7 +222,7 @@
   function isRenamingMember() {
     return (
       editingOriginalName &&
-      normalizeSearchText(editingOriginalName) !== normalizeSearchText(nameInput.value)
+      nameKey(editingOriginalName) !== nameKey(nameInput.value)
     );
   }
 
@@ -243,10 +243,8 @@
   }
 
   function findRosterMemberByName(name) {
-    const normalizedName = normalizeSearchText(name);
-    return roster.find(
-      (member) => normalizeSearchText(member.name) === normalizedName,
-    );
+    const key = nameKey(name);
+    return roster.find((member) => nameKey(member.name) === key);
   }
 
   function renderMemberNameOptions() {
@@ -428,6 +426,15 @@
       : null;
   }
 
+  // Who someone IS: case-insensitive but accent-sensitive (like the
+  // backend's normalize_), so "Hiếu Phan" and "Hieu Phan" stay two people.
+  // NFC makes composed/decomposed spellings of the same letters equal.
+  function nameKey(value) {
+    return String(value || "").normalize("NFC").trim().toLowerCase();
+  }
+
+  // Search only: folds accents so typing "hieu" also finds "Hiếu". Never use
+  // this to decide which member a name refers to (see nameKey).
   function normalizeSearchText(value) {
     return String(value || "")
       .normalize("NFD")
@@ -484,7 +491,7 @@
       const isSelected =
         !adminToken &&
         editingOriginalName &&
-        normalizeSearchText(editingOriginalName) === normalizeSearchText(member.name);
+        nameKey(editingOriginalName) === nameKey(member.name);
       const venmoUrl = getVenmoUrl(member.venmo);
       if (isSelected) {
         row.className = "selected-member-row";
@@ -769,8 +776,8 @@
   }
 
   function findPositionPlayer(name) {
-    const normalizedName = normalizeSearchText(name);
-    return positionPlayers.find((player) => normalizeSearchText(player.name) === normalizedName);
+    const key = nameKey(name);
+    return positionPlayers.find((player) => nameKey(player.name) === key);
   }
 
   function selectPositionsPlayer(name) {
@@ -784,7 +791,7 @@
   function renderPositionsCard() {
     const player = findPositionPlayer(positionsPlayer.value);
     const favorites = player ? player.positions : [];
-    const scores = (player && positionScores.get(normalizeSearchText(player.name))) || {};
+    const scores = (player && positionScores.get(nameKey(player.name))) || {};
     positionGrid.querySelectorAll(".position-tile").forEach((tile) => {
       const code = tile.dataset.position;
       const checkbox = tile.querySelector("input[type=checkbox]");
@@ -826,7 +833,7 @@
       if (adminToken) {
         const scored = await requestAppsScript({ action: "listPlayerScores", adminToken });
         (Array.isArray(scored.players) ? scored.players : []).forEach((player) => {
-          positionScores.set(normalizeSearchText(player.name), player.scores || {});
+          positionScores.set(nameKey(player.name), player.scores || {});
         });
       }
       renderPositionsPlayerOptions();
@@ -884,7 +891,7 @@
           playerName: player.name,
           scores: JSON.stringify(scores),
         });
-        positionScores.set(normalizeSearchText(player.name), scored.scores || scores);
+        positionScores.set(nameKey(player.name), scored.scores || scores);
       }
       // A player saving their own positions: remember who they are (as the
       // RSVP page does). Admins edit other people, so don't overwrite theirs.
