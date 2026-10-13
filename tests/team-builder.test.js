@@ -144,3 +144,59 @@ test("copy text lists every player once and never shows scores", () => {
   assert.doesNotMatch(text, /rating|avg|score/i);
   assert.match(text, /^🔴 Red: GK P/m);
 });
+
+// ---- Goalkeepers: players who ticked GK get the goals when possible ----
+// The GK-preferrers below are also strong outfielders and a non-preferrer
+// is the better keeper on paper, so only the GK preference puts them in goal.
+
+const keepers = (result) =>
+  result.teams.map((team) => team.lineup.find((slot) => slot.position === "GK")?.player.name).filter(Boolean);
+const likesGoalAndCb = (player) => {
+  player.favorites = ["GK", "CB"];
+  player.scores = { GK: 3, CB: 9 };
+};
+
+test("goal goes to players who ticked GK, even over a better keeper who didn't", () => {
+  const players = squad(16); // P01 and P09 tick GK
+  likesGoalAndCb(players[0]);
+  likesGoalAndCb(players[8]);
+  players[4].scores = { CM: 5, GK: 10 }; // P05: great in goal but only ticked CM
+  for (let seed = 1; seed <= 5; seed += 1) {
+    assert.deepStrictEqual(keepers(build(players, seed)).sort(), ["P01", "P09"]);
+  }
+});
+
+test("more GK-preferrers than goals: the best-scored ones keep goal", () => {
+  const players = squad(16);
+  likesGoalAndCb(players[0]); // P01: GK 3
+  players[8].scores = { GK: 8 }; // P09
+  players[2].favorites = ["CB", "GK"]; // P03 also ticks GK
+  players[2].scores = { CB: 6, GK: 9 };
+  for (let seed = 1; seed <= 5; seed += 1) {
+    assert.deepStrictEqual(keepers(build(players, seed)).sort(), ["P03", "P09"]);
+  }
+});
+
+test("too few GK-preferrers: each still gets a goal, the rest go to the best fit", () => {
+  const players = squad(24); // P01, P09, P17 tick GK
+  players[0].favorites = ["GK", "ST"]; // P01: a striker who also likes goal
+  players[0].scores = { GK: 3, ST: 10 };
+  players[8].favorites = ["CB"];
+  players[16].favorites = ["ST"];
+  for (let seed = 1; seed <= 5; seed += 1) {
+    const result = build(players, seed);
+    assert.strictEqual(keepers(result).length, 3);
+    assert.ok(keepers(result).includes("P01"));
+  }
+});
+
+test("23 players: both goals go to GK-preferrers", () => {
+  const players = squad(23); // P01, P09, P17 tick GK; only two goals
+  [0, 8, 16].forEach((index) => likesGoalAndCb(players[index]));
+  players[4].scores = { CM: 5, GK: 10 }; // P05: better keeper, didn't tick GK
+  for (let seed = 1; seed <= 5; seed += 1) {
+    const inGoal = keepers(build(players, seed));
+    assert.strictEqual(inGoal.length, 2);
+    inGoal.forEach((name) => assert.ok(["P01", "P09", "P17"].includes(name), name));
+  }
+});

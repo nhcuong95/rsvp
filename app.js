@@ -1128,6 +1128,17 @@
     if (noPositions.length) {
       notes.push(`No favorite positions (placed anywhere): ${noPositions.join(", ")}.`);
     }
+    // Goals go to players who ticked GK first; say when there aren't enough.
+    const goals = result.teams.filter((team) => !team.borrowsGoalkeeper).length;
+    const keeperFans = players.filter((player) => (player.favorites || []).includes("GK")).length;
+    if (keeperFans < goals) {
+      const standIns = goals - keeperFans;
+      notes.push(
+        keeperFans
+          ? `Only ${keeperFans} ${keeperFans === 1 ? "player prefers" : "players prefer"} GK, so ${standIns} ${standIns === 1 ? "team has" : "teams have"} a stand-in keeper.`
+          : "Nobody here has ticked GK yet, so every keeper is a stand-in.",
+      );
+    }
     setTeamsNote(notes);
 
     teamsList.replaceChildren(

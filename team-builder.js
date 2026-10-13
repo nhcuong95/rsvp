@@ -21,6 +21,11 @@
   // Placement prefers favourite positions by this much (on the 1–10 scale);
   // team strength always uses the real score.
   const FAVORITE_BONUS = 1.5;
+  // Goal goes to players who ticked GK whenever there are enough of them:
+  // this outweighs the whole 1–10 scale, so a GK-preferrer always beats a
+  // non-preferrer for a GK slot, while between two GK-preferrers the better
+  // keeper score still wins. Placement only; balance uses real scores.
+  const KEEPER_PREFERENCE = 20;
   // Random jitter in placement so restarts (and Reshuffle) explore different
   // but still sensible line-ups.
   const PLACEMENT_NOISE = 0.75;
@@ -294,7 +299,9 @@
     }
     const scoreAt = makeScorer(players);
     const fit = (player, position) =>
-      scoreAt(player, position) + (isFavorite(player, position) ? FAVORITE_BONUS : 0);
+      scoreAt(player, position) +
+      (isFavorite(player, position) ? FAVORITE_BONUS : 0) +
+      (position === "GK" && isFavorite(player, "GK") ? KEEPER_PREFERENCE : 0);
 
     const results = [];
     for (let restart = 0; restart < RESTARTS; restart += 1) {
