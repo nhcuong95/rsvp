@@ -1832,6 +1832,25 @@ body.is-admin .non-admin-only {
   font-weight: 800;
 }
 
+/* Expected mm that hour, by RAIN_LEVELS index in app.js: 0 sprinkle,
+   1 drizzle (muted) · 2 light · 3 moderate, 4 heavy (stand out). */
+.weather-hour-amount {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.weather-hour-amount[data-level="2"] {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.weather-hour-amount[data-level="3"],
+.weather-hour-amount[data-level="4"] {
+  color: #c8102e;
+  font-weight: 800;
+}
+
 .date-lock-button {
   display: block;
   margin: 6px auto 0;

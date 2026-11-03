@@ -58,6 +58,17 @@
   // Game length assumed for the game-time forecast when only a start or end
   // time is saved for a date.
   const DEFAULT_GAME_HOURS = 2;
+  // How hard it rains, from the forecast's expected millimetres in an hour.
+  // Standard rain-rate bands (light < 2.5 mm/h, moderate < 7.6, heavy above)
+  // plus drizzle and "barely any" below 0.5 mm/h, so a 70% chance of a few
+  // drops doesn't read like a washout. `short` is the word on the date chips.
+  const RAIN_LEVELS = [
+    { below: 0.1, short: "sprinkle", phrase: "a sprinkle at most" },
+    { below: 0.5, short: "drizzle", phrase: "drizzle" },
+    { below: 2.5, short: "light", phrase: "light rain" },
+    { below: 7.6, short: "moderate", phrase: "moderate rain" },
+    { below: Infinity, short: "heavy", phrase: "heavy rain" },
+  ];
   const FETCH_TIMEOUT_MS = 45000;
   const JSONP_TIMEOUT_MS = 45000;
   const PARTICIPANT_OPTIONS = [
@@ -344,8 +355,58 @@
     return map[code] || ["🌡️", "Weather"];
   }
 
+  // RAIN_LEVELS entry (plus its index as `level`) for an hour's expected mm,
+  // or null when the forecast has no amount.
+  function describeRainAmount(mm) {
+    if (!Number.isFinite(mm)) {
+      return null;
+    }
+    const level = RAIN_LEVELS.findIndex((band) => mm < band.below);
+    return { level, ...RAIN_LEVELS[level] };
+  }
+
+  // "0 mm", "0.4 mm", "12 mm".
+  function formatMm(mm) {
+    if (mm < 0.05) {
+      return "0 mm";
+    }
+    return mm < 10 ? `${mm.toFixed(1)} mm` : `${Math.round(mm)} mm`;
+  }
+
+  // "light rain, up to 1.2 mm/h", or just "a sprinkle at most".
+  function describeRainPhrase(intensity, mm) {
+    return intensity.level === 0
+      ? intensity.phrase
+      : `${intensity.phrase}, up to ${formatMm(mm)}/h`;
+  }
+
+  // Peak rain chance and peak hourly amount for a date: during the game when
+  // the date has a time (what matters for voting), otherwise over the day.
+  function rainOutlookFor(playDate, info) {
+    const peak = (values) => {
+      const known = values.filter(Number.isFinite);
+      return known.length ? Math.max(...known) : NaN;
+    };
+    const forecast = gameTimeForecast(playDate);
+    if (forecast) {
+      return {
+        duringPlay: true,
+        chance: peak(forecast.slots.map((slot) => slot.precip)),
+        amount: peak(forecast.slots.map((slot) => slot.amount)),
+      };
+    }
+    const amounts = [];
+    info.hourly?.forEach((hour, key) => {
+      if (key.startsWith(`${playDate}T`)) {
+        amounts.push(hour.amount);
+      }
+    });
+    return { duringPlay: false, chance: info.precip, amount: peak(amounts) };
+  }
+
   // Build the visible text + accessible label for one date's forecast, or null
   // when we have no forecast for that date (too far out, or fetch failed).
+  // Rain reads "☔ 70% drizzle": the chance plus how hard it would rain.
   function weatherSummaryFor(value) {
     const info = weatherByDate.get(value);
     if (!info) {
@@ -355,13 +416,20 @@
     const hi = Number.isFinite(info.high) ? `${Math.round(info.high)}°` : "";
     const lo = Number.isFinite(info.low) ? `${Math.round(info.low)}°` : "";
     const temp = hi && lo ? `${hi}/${lo}` : hi || lo;
-    const showRain = Number.isFinite(info.precip) && info.precip >= 20;
-    const text = [temp, showRain ? `☔ ${Math.round(info.precip)}%` : ""]
-      .filter(Boolean)
-      .join(" · ");
-    const rainLabel = Number.isFinite(info.precip)
-      ? `, ${Math.round(info.precip)}% chance of rain`
+    const outlook = rainOutlookFor(value, info);
+    const showRain = Number.isFinite(outlook.chance) && outlook.chance >= 20;
+    const intensity = showRain ? describeRainAmount(outlook.amount) : null;
+    const rainText = showRain
+      ? `☔ ${Math.round(outlook.chance)}%${intensity ? ` ${intensity.short}` : ""}`
       : "";
+    const text = [temp, rainText].filter(Boolean).join(" · ");
+    let rainLabel = "";
+    if (Number.isFinite(outlook.chance)) {
+      rainLabel = `, ${Math.round(outlook.chance)}% chance of rain${outlook.duringPlay ? " during play" : ""}`;
+      if (intensity) {
+        rainLabel += `, ${describeRainPhrase(intensity, outlook.amount)}`;
+      }
+    }
     const tempLabel = hi && lo ? `, high ${hi}, low ${lo}` : temp ? `, ${temp}` : "";
     return { icon, text, label: `${condition}${tempLabel}${rainLabel}` };
   }
@@ -458,6 +526,7 @@
         to: Math.min(hour + 1, end),
         temp: tempAt(hour + 0.5),
         precip: next.precip,
+        amount: next.amount,
         code: next.code,
         isNight: next.isDay === 0,
       });
@@ -480,13 +549,26 @@
     let rain = "";
     if (maxPrecip >= 20) {
       const wet = slots.filter((slot) => slot.precip >= 20);
-      focus = wet.reduce((a, b) => (b.precip > a.precip ? b : a));
+      // Icon from the wettest hour: most expected rain, then highest chance.
+      const wetter = (a, b) =>
+        Number.isFinite(a.amount) && Number.isFinite(b.amount) && a.amount !== b.amount
+          ? b.amount > a.amount
+          : b.precip > a.precip;
+      focus = wet.reduce((a, b) => (wetter(a, b) ? b : a));
       const from = wet[0].from;
       const to = wet[wet.length - 1].to;
       const when = from <= start && to >= end ? "during play" : formatClockSpan(from, to);
       const varies = wet.some((slot) => Math.round(slot.precip) !== Math.round(maxPrecip));
       const peak = `${varies ? "up to " : ""}${Math.round(maxPrecip)}%`;
       rain = `${maxPrecip >= 50 ? "Rain likely" : "Chance of rain"} ${when} (${peak})`;
+      // How hard: the heaviest expected hour among the wet ones, so a high
+      // chance of a few drops says so instead of sounding like a washout.
+      const amounts = wet.map((slot) => slot.amount).filter(Number.isFinite);
+      const maxAmount = amounts.length ? Math.max(...amounts) : NaN;
+      const intensity = describeRainAmount(maxAmount);
+      if (intensity) {
+        rain += ` · ${describeRainPhrase(intensity, maxAmount)}`;
+      }
     } else if (Number.isFinite(maxPrecip)) {
       rain = maxPrecip > 0 ? `Likely dry (≤${Math.round(maxPrecip)}% rain)` : "Likely dry";
     }
@@ -586,7 +668,7 @@
       longitude: String(lon),
       daily:
         "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
-      hourly: "temperature_2m,precipitation_probability,weather_code,is_day",
+      hourly: "temperature_2m,precipitation_probability,precipitation,weather_code,is_day",
       temperature_unit: "celsius",
       timezone: WEATHER_TIMEZONE,
       forecast_days: String(WEATHER_FORECAST_DAYS),
@@ -606,6 +688,8 @@
             hourly.set(String(time), {
               temp: num(hourlyData.temperature_2m?.[index]),
               precip: num(hourlyData.precipitation_probability?.[index]),
+              // Expected mm over the preceding hour (rain + showers + snow).
+              amount: num(hourlyData.precipitation?.[index]),
               code: num(hourlyData.weather_code?.[index]),
               isDay: num(hourlyData.is_day?.[index]),
             });
@@ -922,9 +1006,11 @@
         const time = document.createElement("span");
         const temp = document.createElement("span");
         const rain = document.createElement("span");
+        const amount = document.createElement("span");
         time.className = "weather-hour-time";
         temp.className = "weather-hour-temp";
         rain.className = "weather-hour-rain";
+        amount.className = "weather-hour-amount";
         time.textContent = formatClock(slot.hour);
         temp.textContent = Number.isFinite(slot.temp)
           ? `${icon} ${Math.round(slot.temp)}°`
@@ -933,8 +1019,20 @@
           rain.textContent = `☔ ${Math.round(slot.precip)}%`;
           rain.classList.toggle("wet", slot.precip >= 50);
         }
-        item.title = `${formatClockSpan(slot.hour, slot.hour + 1)}: ${condition}`;
-        item.append(time, temp, rain);
+        // Expected millimetres that hour; CSS colours it by how hard it is.
+        const intensity = describeRainAmount(slot.amount);
+        if (intensity) {
+          amount.textContent = formatMm(slot.amount);
+          amount.dataset.level = String(intensity.level);
+        }
+        // With real rain, say how hard (the weather code's "drizzle" vs "rain"
+        // is about droplet type and can contradict the amount); else the sky.
+        item.title = `${formatClockSpan(slot.hour, slot.hour + 1)}: ${
+          intensity && intensity.level > 0
+            ? `${intensity.phrase}, ${formatMm(slot.amount)}`
+            : `${condition}${intensity ? `, ${intensity.phrase}` : ""}`
+        }`;
+        item.append(time, temp, rain, amount);
         return item;
       }),
     );
